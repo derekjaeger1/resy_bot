@@ -75,6 +75,8 @@ python test_booking.py --dry-run
 
 **Important:** This bot runs locally on your machine. For a snipe to work, the web server must be running and your computer must be awake at the scheduled release time. Plan accordingly—if you schedule a snipe for 9:00 AM tomorrow, make sure your laptop isn't asleep or shut down at that time.
 
+> **Tip (macOS):** Run `caffeinate` in a terminal window to prevent your Mac from sleeping. Press Ctrl+C to stop it when you're done.
+
 1. **Release Time Calculation**: The bot calculates when reservations are released based on the restaurant's schedule (e.g., 14 days in advance at 9:00 AM).
 
 2. **Pre-warming**: 5 seconds before release, the bot wakes up and establishes HTTP connections.
