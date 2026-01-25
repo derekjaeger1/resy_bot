@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Check Availability - Resy Bot{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">Check Availability</h1>
+</div>
+
+{% if error %}
+<div class="glass rounded-2xl p-4 mb-6 border-red-500/50 bg-red-500/10">
+    <p class="text-red-400">{{ error }}</p>
+</div>
+{% endif %}
+
+{% if not restaurants %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No restaurants added</h3>
+    <p class="text-gray-400 mb-4">Add some restaurants first to check availability.</p>
+    <a href="/restaurants" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all inline-block">
+        Add Restaurant
+    </a>
+</div>
+{% else %}
+
+<!-- Search Form -->
+<form action="/availability/check" method="post" class="glass rounded-2xl p-6 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Date</label>
+            <input type="date" name="search_date" required value="{{ search_date }}" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
+            <input type="time" name="search_time" value="{{ search_time }}" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
+            <select name="time_window" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                <option value="60" {% if search_window == 60 %}selected{% endif %}>+/- 1 hour</option>
+                <option value="120" {% if search_window == 120 %}selected{% endif %}>+/- 2 hours</option>
+                <option value="180" {% if search_window == 180 %}selected{% endif %}>+/- 3 hours</option>
+                <option value="480" {% if search_window == 480 %}selected{% endif %}>Any time</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
+            <input type="number" name="party_size" value="{{ party_size }}" min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+        </div>
+    </div>
+
+    <div class="mb-4">
+        <label class="block text-sm font-medium text-gray-300 mb-2">Select Restaurants (choose up to 10)</label>
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 max-h-64 overflow-y-auto p-2 bg-white/5 rounded-lg">
+            {% for r in restaurants %}
+            <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white/10 cursor-pointer transition-all">
+                <input type="checkbox" name="restaurant_ids" value="{{ r.id }}"
+                    {% if selected_ids and r.id in selected_ids %}checked{% endif %}
+                    class="w-4 h-4 rounded bg-white/10 border-white/20 text-resy-500 focus:ring-resy-500">
+                <span class="text-sm truncate">{{ r.name }}</span>
+            </label>
+            {% endfor %}
+        </div>
+    </div>
+
+    <button type="submit" class="w-full bg-resy-600 hover:bg-resy-700 text-white px-6 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+        Check Availability
+    </button>
+</form>
+
+<!-- Results -->
+{% if results %}
+<div class="space-y-4">
+    <h2 class="text-xl font-semibold">Results for {{ search_date }}</h2>
+
+    {% for result in results %}
+    <div class="glass rounded-2xl p-6 transition-all">
+        <div class="flex items-start justify-between mb-4">
+            <div>
+                <h3 class="text-lg font-bold text-white">{{ result.restaurant.name }}</h3>
+                {% if result.restaurant.address %}
+                <p class="text-sm text-gray-400">{{ result.restaurant.address }}</p>
+                {% endif %}
+            </div>
+            <div class="text-right">
+                {% if result.error %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400">Error</span>
+                {% elif result.slots %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">{{ result.slots|length }} matching</span>
+                {% else %}
+                <span class="px-3 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">No availability</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if result.error %}
+        <p class="text-red-400 text-sm">{{ result.error }}</p>
+        {% elif result.slots %}
+        <div class="flex flex-wrap gap-2">
+            {% for slot in result.slots[:12] %}
+            <div class="bg-white/10 rounded-lg px-3 py-2 text-sm">
+                <span class="font-medium text-white">
+                    {% set time_parts = slot.time.split(' ') %}
+                    {% if time_parts|length > 1 %}
+                        {{ time_parts[1][:5] }}
+                    {% else %}
+                        {{ slot.time[:5] }}
+                    {% endif %}
+                </span>
+                <span class="text-gray-400 text-xs ml-1">{{ slot.table_type }}</span>
+            </div>
+            {% endfor %}
+            {% if result.slots|length > 12 %}
+            <div class="bg-white/5 rounded-lg px-3 py-2 text-sm text-gray-400">
+                +{{ result.slots|length - 12 }} more
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p class="text-gray-400 text-sm">
+            {% if result.total_slots > 0 %}
+            {{ result.total_slots }} slots exist, but none within your time window.
+            {% else %}
+            No reservations available on this date.
+            {% endif %}
+        </p>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}

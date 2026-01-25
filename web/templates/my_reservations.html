@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}My Reservations - Resy Bot{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">My Reservations</h1>
+    <p class="text-gray-400 text-sm">View and manage your Resy reservations</p>
+</div>
+
+<!-- Messages -->
+{% if message %}
+<div class="glass rounded-xl p-4 mb-6 border-green-500/30 bg-green-500/10">
+    <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <span class="text-green-400">{{ message }}</span>
+    </div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="glass rounded-xl p-4 mb-6 border-red-500/30 bg-red-500/10">
+    <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span class="text-red-400">{{ error }}</span>
+    </div>
+</div>
+{% endif %}
+
+{% if not has_credentials %}
+<!-- No Credentials State -->
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+    </svg>
+    <h3 class="text-xl font-semibold text-gray-300 mb-2">No Credentials Configured</h3>
+    <p class="text-gray-400 mb-6">Please configure your Resy credentials to view your reservations.</p>
+    <a href="/settings" class="inline-flex items-center gap-2 bg-resy-600 hover:bg-resy-700 text-white px-6 py-3 rounded-lg font-medium transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+        </svg>
+        Go to Settings
+    </a>
+</div>
+{% elif reservations %}
+<!-- Reservations List -->
+<div class="grid gap-4">
+    {% for res in reservations %}
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-start justify-between">
+            <div class="flex items-start gap-4">
+                <!-- Calendar Icon -->
+                <div class="w-14 h-14 rounded-xl bg-resy-600/20 flex flex-col items-center justify-center">
+                    {% if res.date %}
+                    <span class="text-resy-400 text-xs font-medium uppercase">{{ res.date[5:7] }}/{{ res.date[8:10] }}</span>
+                    {% endif %}
+                    {% if res.time %}
+                    <span class="text-white text-lg font-bold">{{ res.time[:5] }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- Reservation Details -->
+                <div>
+                    <h3 class="text-xl font-semibold text-white mb-1">{{ res.venue_name }}</h3>
+                    <div class="flex flex-wrap items-center gap-3 text-gray-400 text-sm">
+                        {% if res.date %}
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            {{ res.date }}
+                        </span>
+                        {% endif %}
+                        {% if res.time %}
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            {{ res.time }}
+                        </span>
+                        {% endif %}
+                        {% if res.party_size %}
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            {{ res.party_size }} guests
+                        </span>
+                        {% endif %}
+                        {% if res.table_type %}
+                        <span class="px-2 py-0.5 rounded-full text-xs bg-white/10 text-gray-300">
+                            {{ res.table_type }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if res.confirmation_number %}
+                    <p class="text-gray-500 text-xs mt-2">Confirmation: {{ res.confirmation_number }}</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Cancel Button -->
+            <div class="flex flex-col items-end gap-2">
+                {% if res.cancellation_allowed %}
+                <form action="/my-reservations/cancel" method="post" onsubmit="return confirm('Are you sure you want to cancel this reservation at {{ res.venue_name }}?');">
+                    <input type="hidden" name="resy_token" value="{{ res.resy_token }}">
+                    <button type="submit" class="flex items-center gap-2 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white px-4 py-2 rounded-lg text-sm font-medium transition-all">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                        Cancel
+                    </button>
+                </form>
+                {% if res.cancellation_cutoff %}
+                <p class="text-gray-500 text-xs">Cancel by {{ res.cancellation_cutoff }}</p>
+                {% endif %}
+                {% else %}
+                <span class="px-3 py-1 rounded-full text-xs bg-gray-600/30 text-gray-400">
+                    Cannot cancel
+                </span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<!-- No Reservations State -->
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+    </svg>
+    <h3 class="text-xl font-semibold text-gray-300 mb-2">No Reservations</h3>
+    <p class="text-gray-400">You don't have any upcoming Resy reservations.</p>
+</div>
+{% endif %}
+{% endblock %}

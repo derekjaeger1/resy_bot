@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}Cancellation Monitors - Resy Bot{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <div>
+        <h1 class="text-2xl font-bold">Cancellation Monitors</h1>
+        <p class="text-gray-400 text-sm mt-1">Automatically book when cancellations appear (polls every 10 minutes)</p>
+    </div>
+    {% if restaurants %}
+    <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+        </svg>
+        Add Monitor
+    </button>
+    {% endif %}
+</div>
+
+{% if not restaurants %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No restaurants added</h3>
+    <p class="text-gray-400 mb-4">Add a restaurant first before setting up a monitor.</p>
+    <a href="/restaurants" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all inline-block">
+        Add Restaurant
+    </a>
+</div>
+{% elif monitors %}
+<div class="space-y-4">
+    {% for monitor in monitors %}
+    {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-start gap-4">
+                <!-- Status Indicator -->
+                <div class="flex-shrink-0">
+                    {% if monitor.status.value == 'active' %}
+                    <div class="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-blue-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </div>
+                    {% elif monitor.status.value == 'success' %}
+                    <div class="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    {% elif monitor.status.value == 'expired' %}
+                    <div class="w-12 h-12 bg-gray-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    {% else %}
+                    <div class="w-12 h-12 bg-gray-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+                        </svg>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Details -->
+                <div>
+                    <h3 class="text-lg font-bold text-white">{{ restaurant.name if restaurant else 'Unknown Restaurant' }}</h3>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400 mt-1">
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            {{ monitor.target_date.strftime('%B %d, %Y') }}
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            {{ monitor.preferred_time }} ± {{ monitor.time_window }}min
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            Party of {{ monitor.party_size }}
+                        </span>
+                    </div>
+                    {% if monitor.booked_time %}
+                    <p class="text-green-400 font-medium mt-2">Booked: {{ monitor.booked_time }}</p>
+                    {% endif %}
+                    {% if monitor.last_checked %}
+                    <p class="text-xs text-gray-500 mt-1">Last checked: {{ monitor.last_checked.strftime('%H:%M') }} ({{ monitor.check_count }} checks)</p>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- Status Badge -->
+                <div>
+                    {% if monitor.status.value == 'active' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">Watching</span>
+                    {% elif monitor.status.value == 'success' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">Booked!</span>
+                    {% elif monitor.status.value == 'expired' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">Expired</span>
+                    {% else %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">Cancelled</span>
+                    {% endif %}
+                </div>
+
+                <!-- Action Buttons -->
+                {% if monitor.status.value == 'active' %}
+                <form action="/monitors/{{ monitor.id }}/cancel" method="post" onsubmit="return confirm('Stop monitoring this restaurant?')">
+                    <button type="submit" class="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Stop Monitoring">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z"></path>
+                        </svg>
+                    </button>
+                </form>
+                {% else %}
+                <form action="/monitors/{{ monitor.id }}/delete" method="post" onsubmit="return confirm('Delete this monitor?')">
+                    <button type="submit" class="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Delete">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No active monitors</h3>
+    <p class="text-gray-400 mb-4">Set up a monitor to automatically book when cancellations appear.</p>
+    <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all">
+        Add Your First Monitor
+    </button>
+</div>
+{% endif %}
+
+<!-- Add Modal -->
+{% if restaurants %}
+<div id="addModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Add Cancellation Monitor</h2>
+        <form action="/monitors/add" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Restaurant</label>
+                <select name="restaurant_id" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                    {% for r in restaurants %}
+                    <option value="{{ r.id }}">{{ r.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Target Date</label>
+                <input type="date" name="target_date" required value="{{ default_date }}" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
+                <input type="number" name="party_size" required value="2" min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
+                    <input type="time" name="preferred_time" value="19:00" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
+                    <select name="time_window" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                        <option value="60">± 1 hour</option>
+                        <option value="120" selected>± 2 hours</option>
+                        <option value="180">± 3 hours</option>
+                        <option value="240">± 4 hours</option>
+                    </select>
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 -mt-2">Will auto-book the closest time within your window</p>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Table Type (optional)</label>
+                <input type="text" name="table_type" placeholder="e.g., Dining Room, Patio" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('addModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Start Monitoring
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

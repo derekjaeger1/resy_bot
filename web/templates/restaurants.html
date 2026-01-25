@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Restaurants - Resy Bot{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">Restaurants</h1>
+    <div class="flex gap-3">
+        <button onclick="document.getElementById('presetModal').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path>
+            </svg>
+            Browse Popular NYC
+        </button>
+        <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+            </svg>
+            Add Custom
+        </button>
+    </div>
+</div>
+
+{% if restaurants %}
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for r in restaurants %}
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex justify-between items-start mb-4">
+            <div>
+                <h3 class="text-lg font-bold text-white">{{ r.name }}</h3>
+                <p class="text-sm text-gray-400">Venue ID: {{ r.venue_id }}</p>
+            </div>
+            <div class="flex gap-2">
+                <button onclick="openEditModal({{ r.id }}, '{{ r.name }}', {{ r.venue_id }}, '{{ r.release_time.strftime('%H:%M') }}', {{ r.days_in_advance }}, '{{ r.release_pattern.value }}', '{{ r.address or '' }}')" class="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg transition-all">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                    </svg>
+                </button>
+                <form action="/restaurants/{{ r.id }}/delete" method="post" onsubmit="return confirm('Delete {{ r.name }}?')">
+                    <button type="submit" class="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+        <div class="space-y-2">
+            <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-resy-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                <span class="text-gray-300">Releases at <span class="text-white font-medium">{{ r.release_time.strftime('%H:%M') }}</span></span>
+            </div>
+            <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-resy-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+                <span class="text-gray-300"><span class="text-white font-medium">{{ r.days_in_advance }}</span> days in advance</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-resy-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                </svg>
+                <span class="text-gray-300 capitalize">{{ r.release_pattern.value }} releases</span>
+            </div>
+            {% if r.address %}
+            <div class="flex items-center gap-2 text-sm">
+                <svg class="w-4 h-4 text-resy-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                </svg>
+                <span class="text-gray-400 truncate">{{ r.address }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No restaurants added</h3>
+    <p class="text-gray-400 mb-4">Add a restaurant to start scheduling reservation snipes.</p>
+    <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all">
+        Add Your First Restaurant
+    </button>
+</div>
+{% endif %}
+
+<!-- Add Modal -->
+<div id="addModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Add Restaurant</h2>
+        <form action="/restaurants/add" method="post" class="space-y-4">
+            <!-- Search Section -->
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Search Restaurant</label>
+                <div class="relative">
+                    <input type="text" id="searchInput" placeholder="Type to search Resy..." class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-green-500" oninput="searchVenues(this.value)">
+                    <div id="searchResults" class="hidden absolute z-10 w-full mt-1 bg-gray-800 border border-white/20 rounded-lg shadow-xl max-h-48 overflow-y-auto"></div>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">Search to auto-fill venue ID, or enter manually below</p>
+            </div>
+
+            <div class="border-t border-white/10 pt-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Restaurant Name</label>
+                    <input type="text" name="name" id="addName" required placeholder="e.g., Carbone" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Venue ID</label>
+                <div class="flex gap-2">
+                    <input type="number" name="venue_id" id="addVenueId" required placeholder="Auto-filled from search" class="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+                    <span id="venueIdStatus" class="hidden self-center text-green-400 text-sm">Found!</span>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Release Time</label>
+                    <input type="time" name="release_time" id="addReleaseTime" required value="09:00" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Days in Advance</label>
+                    <input type="number" name="days_in_advance" id="addDaysInAdvance" required value="14" min="1" max="90" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Release Pattern</label>
+                <select name="release_pattern" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Address (optional)</label>
+                <input type="text" name="address" id="addAddress" placeholder="e.g., 181 Thompson St, NYC" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="closeAddModal()" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Add Restaurant
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div id="editModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Edit Restaurant</h2>
+        <form id="editForm" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Restaurant Name</label>
+                <input type="text" name="name" id="edit_name" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Venue ID</label>
+                <input type="number" name="venue_id" id="edit_venue_id" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Release Time</label>
+                    <input type="time" name="release_time" id="edit_release_time" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Days in Advance</label>
+                    <input type="number" name="days_in_advance" id="edit_days" required min="1" max="90" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Release Pattern</label>
+                <select name="release_pattern" id="edit_pattern" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Address (optional)</label>
+                <input type="text" name="address" id="edit_address" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Preset Modal -->
+<div id="presetModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-4xl mx-4 max-h-[80vh] overflow-hidden flex flex-col">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-xl font-bold">Popular NYC Restaurants</h2>
+            <button onclick="document.getElementById('presetModal').classList.add('hidden')" class="p-2 hover:bg-white/10 rounded-lg transition-all">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        </div>
+        <p class="text-sm text-gray-400 mb-4">Select a restaurant to add. Release schedules are pre-filled from <a href="https://www.nycrsvps.com/" target="_blank" class="text-resy-400 hover:text-resy-300 underline">NYC RSVPs</a>.</p>
+
+        <div class="overflow-y-auto flex-1 pr-2">
+            {% for cuisine, restaurants_list in preset_cuisines.items() %}
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-resy-400 uppercase tracking-wider mb-3">{{ cuisine }}</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {% for r in restaurants_list %}
+                    <button onclick="selectPreset('{{ r.name }}', '{{ r.release_time }}', {{ r.days_in_advance }}, '{{ r.area }}', '{{ r.resy_slug }}')" class="glass p-4 rounded-xl text-left hover:bg-white/10 transition-all group">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h4 class="font-medium text-white group-hover:text-resy-300">{{ r.name }}</h4>
+                                <p class="text-xs text-gray-400">{{ r.area }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-mono text-resy-400">{{ r.release_time }}</p>
+                                <p class="text-xs text-gray-500">{{ r.days_in_advance }}d ahead</p>
+                            </div>
+                        </div>
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<script>
+function openEditModal(id, name, venue_id, release_time, days, pattern, address) {
+    document.getElementById('editForm').action = '/restaurants/' + id + '/edit';
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_venue_id').value = venue_id;
+    document.getElementById('edit_release_time').value = release_time;
+    document.getElementById('edit_days').value = days;
+    document.getElementById('edit_pattern').value = pattern;
+    document.getElementById('edit_address').value = address;
+    document.getElementById('editModal').classList.remove('hidden');
+}
+
+function selectPreset(name, releaseTime, daysInAdvance, area, resySlug) {
+    // Close preset modal
+    document.getElementById('presetModal').classList.add('hidden');
+
+    // Open add modal with prefilled values
+    document.getElementById('addModal').classList.remove('hidden');
+
+    // Fill in the form
+    document.getElementById('addName').value = name;
+    document.getElementById('addReleaseTime').value = releaseTime;
+    document.getElementById('addDaysInAdvance').value = daysInAdvance;
+    document.getElementById('addAddress').value = area + ', NYC';
+
+    // Auto-search for venue ID
+    document.getElementById('searchInput').value = name;
+    searchVenues(name);
+}
+
+let searchTimeout = null;
+
+function searchVenues(query) {
+    clearTimeout(searchTimeout);
+    const resultsDiv = document.getElementById('searchResults');
+
+    if (query.length < 2) {
+        resultsDiv.classList.add('hidden');
+        return;
+    }
+
+    searchTimeout = setTimeout(async () => {
+        try {
+            const response = await fetch('/api/search?q=' + encodeURIComponent(query));
+            const data = await response.json();
+
+            if (data.venues && data.venues.length > 0) {
+                resultsDiv.innerHTML = data.venues.map(v => `
+                    <button type="button" onclick="selectVenue(${v.id}, '${v.name.replace(/'/g, "\\'")}', '${v.neighborhood}')"
+                        class="w-full px-4 py-3 text-left hover:bg-white/10 border-b border-white/5 last:border-0">
+                        <div class="font-medium text-white">${v.name}</div>
+                        <div class="text-xs text-gray-400">${v.neighborhood} • ID: ${v.id}</div>
+                    </button>
+                `).join('');
+                resultsDiv.classList.remove('hidden');
+            } else {
+                resultsDiv.innerHTML = '<div class="px-4 py-3 text-gray-400 text-sm">No results found</div>';
+                resultsDiv.classList.remove('hidden');
+            }
+        } catch (e) {
+            console.error('Search failed:', e);
+        }
+    }, 300);
+}
+
+function selectVenue(id, name, neighborhood) {
+    document.getElementById('addName').value = name;
+    document.getElementById('addVenueId').value = id;
+    document.getElementById('addAddress').value = neighborhood + ', NYC';
+    document.getElementById('searchResults').classList.add('hidden');
+    document.getElementById('searchInput').value = '';
+    document.getElementById('venueIdStatus').classList.remove('hidden');
+
+    // Flash green to indicate success
+    const venueInput = document.getElementById('addVenueId');
+    venueInput.classList.add('border-green-500');
+    setTimeout(() => venueInput.classList.remove('border-green-500'), 2000);
+}
+
+function closeAddModal() {
+    document.getElementById('addModal').classList.add('hidden');
+    document.getElementById('searchInput').value = '';
+    document.getElementById('searchResults').classList.add('hidden');
+    document.getElementById('venueIdStatus').classList.add('hidden');
+}
+
+// Close search results when clicking outside
+document.addEventListener('click', (e) => {
+    if (!e.target.closest('#searchInput') && !e.target.closest('#searchResults')) {
+        document.getElementById('searchResults').classList.add('hidden');
+    }
+});
+</script>
+{% endblock %}

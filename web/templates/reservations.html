@@ -1,0 +1,445 @@
+{% extends "base.html" %}
+
+{% block title %}Schedule - Resy Bot{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">Scheduled Reservations</h1>
+    {% if restaurants %}
+    <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+        </svg>
+        Schedule Snipe
+    </button>
+    {% endif %}
+</div>
+
+{% if not restaurants %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No restaurants added</h3>
+    <p class="text-gray-400 mb-4">Add a restaurant first before scheduling a reservation.</p>
+    <a href="/restaurants" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all inline-block">
+        Add Restaurant
+    </a>
+</div>
+{% elif reservations %}
+<div class="space-y-4">
+    {% for res in reservations %}
+    {% set restaurant = restaurant_map.get(res.restaurant_id) %}
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="flex items-start gap-4">
+                <!-- Status Indicator -->
+                <div class="flex-shrink-0">
+                    {% if res.status.value == 'pending' %}
+                    <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </div>
+                    {% elif res.status.value == 'success' %}
+                    <div class="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                    </div>
+                    {% elif res.status.value == 'failed' %}
+                    <div class="w-12 h-12 bg-red-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </div>
+                    {% elif res.status.value == 'in_progress' %}
+                    <div class="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-blue-400 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                    </div>
+                    {% else %}
+                    <div class="w-12 h-12 bg-gray-500/20 rounded-xl flex items-center justify-center">
+                        <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>
+                        </svg>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Details -->
+                <div>
+                    <h3 class="text-lg font-bold text-white">{{ restaurant.name if restaurant else 'Unknown Restaurant' }}</h3>
+                    <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-400 mt-1">
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                            </svg>
+                            {{ res.target_date.strftime('%B %d, %Y') }}
+                        </span>
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                            </svg>
+                            Party of {{ res.party_size }}
+                        </span>
+                    </div>
+                    {% if res.booked_time %}
+                    <p class="text-green-400 font-medium mt-2">Booked: {{ res.booked_time }}</p>
+                    {% endif %}
+                    {% if res.result_message and res.status.value == 'failed' %}
+                    <div class="mt-2">
+                        <button onclick="toggleError({{ res.id }})" class="flex items-center gap-1 text-red-400 hover:text-red-300 text-sm transition-all">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                            <span>View Error Details</span>
+                            <svg id="errorChevron{{ res.id }}" class="w-4 h-4 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                        </button>
+                        <div id="errorDetails{{ res.id }}" class="hidden mt-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                            <p class="text-red-300 text-xs font-mono whitespace-pre-wrap break-all">{{ res.result_message }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                <!-- Snipe Time -->
+                <div class="text-right">
+                    <p class="text-xs text-gray-500 uppercase tracking-wider">Snipe At</p>
+                    <p class="text-lg font-bold {% if res.status.value == 'pending' %}text-amber-400{% else %}text-gray-400{% endif %}">
+                        {{ res.snipe_at.strftime('%b %d, %H:%M') }}
+                    </p>
+                </div>
+
+                <!-- Status Badge -->
+                <div>
+                    {% if res.status.value == 'pending' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-amber-500/20 text-amber-400">Pending</span>
+                    {% elif res.status.value == 'success' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-green-500/20 text-green-400">Success</span>
+                    {% elif res.status.value == 'failed' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-red-500/20 text-red-400">Failed</span>
+                    {% elif res.status.value == 'in_progress' %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">Running</span>
+                    {% else %}
+                    <span class="px-3 py-1 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">Cancelled</span>
+                    {% endif %}
+                </div>
+
+                <!-- Action Buttons -->
+                <!-- Duplicate Button (always visible) -->
+                <button onclick="openDuplicateModal({{ res.id }}, '{{ restaurant.name if restaurant else 'Unknown' }}', '{{ res.target_date.strftime('%Y-%m-%d') }}')" class="p-2 text-gray-400 hover:text-green-400 hover:bg-green-500/10 rounded-lg transition-all" title="Duplicate for another date">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                    </svg>
+                </button>
+                {% if res.status.value == 'pending' %}
+                <!-- Edit Button -->
+                <button onclick="openEditModal(this)" data-id="{{ res.id }}" data-date="{{ res.target_date.strftime('%Y-%m-%d') }}" data-party="{{ res.party_size }}" data-name="{{ restaurant.name if restaurant else 'Unknown' }}" data-prefs='{{ res.preferred_times|default("[]", true) }}' class="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all" title="Edit">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                    </svg>
+                </button>
+                <!-- Cancel Button -->
+                <form action="/reservations/{{ res.id }}/cancel" method="post" onsubmit="return confirm('Cancel this reservation?')">
+                    <button type="submit" class="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Cancel">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </form>
+                {% else %}
+                <!-- Delete Button (for non-pending) -->
+                <form action="/reservations/{{ res.id }}/delete" method="post" onsubmit="return confirm('Delete this reservation from history?')">
+                    <button type="submit" class="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all" title="Delete">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="glass rounded-2xl p-12 text-center">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+    </svg>
+    <h3 class="text-xl font-semibold mb-2">No reservations scheduled</h3>
+    <p class="text-gray-400 mb-4">Schedule a reservation snipe to get started.</p>
+    <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-resy-600 hover:bg-resy-700 text-white px-6 py-2 rounded-lg font-medium transition-all">
+        Schedule Your First Snipe
+    </button>
+</div>
+{% endif %}
+
+<!-- Add Modal -->
+{% if restaurants %}
+<div id="addModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Schedule Reservation</h2>
+        <form action="/reservations/add" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Restaurant</label>
+                <select name="restaurant_id" id="addRestaurantSelect" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500" onchange="updateSnipeStatus()">
+                    {% for r in restaurants %}
+                    <option value="{{ r.id }}" data-days="{{ r.days_in_advance }}" data-time="{{ r.release_time.strftime('%H:%M') }}">{{ r.name }} ({{ r.days_in_advance }}d @ {{ r.release_time.strftime('%H:%M') }})</option>
+                    {% endfor %}
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Shows days in advance and release time</p>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Target Date</label>
+                <input type="date" name="target_date" id="addTargetDate" required value="{{ default_date }}" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500" onchange="updateSnipeStatus()">
+                <div id="snipeStatusMessage" class="mt-2 text-xs rounded-lg p-2 hidden"></div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
+                <input type="number" name="party_size" required value="2" min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
+                    <input type="time" name="preferred_time" value="19:00" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
+                    <select name="time_window" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                        <option value="30">± 30 min</option>
+                        <option value="60" selected>± 1 hour</option>
+                        <option value="90">± 1.5 hours</option>
+                        <option value="120">± 2 hours</option>
+                    </select>
+                </div>
+            </div>
+            <p class="text-xs text-gray-500 -mt-2">Will book the closest available time within your window</p>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Table Type (optional)</label>
+                <input type="text" name="table_type" value="dining" placeholder="e.g., Dining Room, Patio" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+                <p class="text-xs text-gray-500 mt-1">Prefers tables matching this text (e.g., "dining" avoids bar seats)</p>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('addModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Schedule Snipe
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Edit Modal -->
+<div id="editModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Edit Reservation - <span id="editRestaurantName"></span></h2>
+        <form id="editForm" action="" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Target Date</label>
+                <input type="date" name="target_date" id="editTargetDate" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
+                <input type="number" name="party_size" id="editPartySize" required min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
+                    <input type="time" name="preferred_time" id="editPreferredTime" value="19:00" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
+                    <select name="time_window" id="editTimeWindow" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                        <option value="30">± 30 min</option>
+                        <option value="60" selected>± 1 hour</option>
+                        <option value="90">± 1.5 hours</option>
+                        <option value="120">± 2 hours</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Table Type (optional)</label>
+                <input type="text" name="table_type" id="editTableType" placeholder="e.g., Dining Room, Patio" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+                <p class="text-xs text-gray-500 mt-1">Prefers tables matching this text (e.g., "dining" avoids bar seats)</p>
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Duplicate Modal -->
+<div id="duplicateModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+        <h2 class="text-xl font-bold mb-4">Duplicate Snipe - <span id="dupRestaurantName"></span></h2>
+        <p class="text-gray-400 text-sm mb-4">Create a copy of this snipe for a different date.</p>
+        <form id="duplicateForm" action="" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">New Target Date</label>
+                <input type="date" name="target_date" id="dupTargetDate" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('duplicateModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Cancel
+                </button>
+                <button type="submit" class="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Create Duplicate
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleError(resId) {
+    var details = document.getElementById('errorDetails' + resId);
+    var chevron = document.getElementById('errorChevron' + resId);
+    if (details.classList.contains('hidden')) {
+        details.classList.remove('hidden');
+        chevron.style.transform = 'rotate(180deg)';
+    } else {
+        details.classList.add('hidden');
+        chevron.style.transform = 'rotate(0deg)';
+    }
+}
+
+function openEditModal(btn) {
+    var reservationId = btn.dataset.id;
+    var targetDate = btn.dataset.date;
+    var partySize = btn.dataset.party;
+    var restaurantName = btn.dataset.name;
+    var preferredTimes = [];
+
+    try {
+        preferredTimes = JSON.parse(btn.dataset.prefs || '[]');
+    } catch (e) {
+        console.error('Failed to parse prefs:', e);
+    }
+
+    document.getElementById('editForm').action = '/reservations/' + reservationId + '/edit';
+    document.getElementById('editTargetDate').value = targetDate;
+    document.getElementById('editPartySize').value = partySize;
+    document.getElementById('editRestaurantName').textContent = restaurantName;
+
+    // Parse preferred times to populate form fields
+    if (preferredTimes && preferredTimes.length > 0) {
+        var pref = preferredTimes[0];
+        if (pref.time) {
+            document.getElementById('editPreferredTime').value = pref.time;
+        }
+        if (pref.window_minutes) {
+            document.getElementById('editTimeWindow').value = pref.window_minutes;
+        }
+        if (pref.table_type) {
+            document.getElementById('editTableType').value = pref.table_type;
+        } else {
+            document.getElementById('editTableType').value = '';
+        }
+    } else {
+        // Reset to defaults
+        document.getElementById('editPreferredTime').value = '19:00';
+        document.getElementById('editTimeWindow').value = '60';
+        document.getElementById('editTableType').value = '';
+    }
+
+    document.getElementById('editModal').classList.remove('hidden');
+}
+
+function openDuplicateModal(reservationId, restaurantName, originalDate) {
+    document.getElementById('duplicateForm').action = '/reservations/' + reservationId + '/duplicate';
+    document.getElementById('dupRestaurantName').textContent = restaurantName;
+    // Set default to +1 day from original date
+    var date = new Date(originalDate);
+    date.setDate(date.getDate() + 1);
+    document.getElementById('dupTargetDate').value = date.toISOString().split('T')[0];
+    document.getElementById('duplicateModal').classList.remove('hidden');
+}
+
+function updateSnipeStatus() {
+    var restaurantSelect = document.getElementById('addRestaurantSelect');
+    var targetDateInput = document.getElementById('addTargetDate');
+    var statusDiv = document.getElementById('snipeStatusMessage');
+
+    if (!restaurantSelect || !targetDateInput || !statusDiv) return;
+
+    var selectedOption = restaurantSelect.options[restaurantSelect.selectedIndex];
+    var daysInAdvance = parseInt(selectedOption.dataset.days);
+    var releaseTime = selectedOption.dataset.time; // "09:00" format
+    var targetDateStr = targetDateInput.value;
+
+    if (!targetDateStr || !releaseTime) {
+        statusDiv.classList.add('hidden');
+        return;
+    }
+
+    // Parse target date
+    var targetDate = new Date(targetDateStr + 'T00:00:00');
+
+    // Calculate when this date would be released
+    // Release date = target date - days_in_advance
+    var releaseDate = new Date(targetDate);
+    releaseDate.setDate(releaseDate.getDate() - daysInAdvance);
+
+    // Set release time
+    var [hours, minutes] = releaseTime.split(':').map(Number);
+    releaseDate.setHours(hours, minutes, 0, 0);
+
+    // Get current time
+    var now = new Date();
+
+    statusDiv.classList.remove('hidden');
+
+    if (now >= releaseDate) {
+        // Already released
+        var daysSinceRelease = Math.floor((now - releaseDate) / (1000 * 60 * 60 * 24));
+        statusDiv.className = 'mt-2 text-xs rounded-lg p-2 bg-amber-500/20 border border-amber-500/30 text-amber-300';
+        if (daysSinceRelease === 0) {
+            statusDiv.innerHTML = '<span class="font-medium">Already released today.</span> Check availability instead of sniping - slots may already be taken.';
+        } else {
+            statusDiv.innerHTML = '<span class="font-medium">Released ' + daysSinceRelease + ' day(s) ago.</span> This date is not snipeable - check availability directly.';
+        }
+    } else {
+        // Not yet released - this is a valid snipe
+        var msUntilRelease = releaseDate - now;
+        var hoursUntil = Math.floor(msUntilRelease / (1000 * 60 * 60));
+        var daysUntil = Math.floor(hoursUntil / 24);
+        hoursUntil = hoursUntil % 24;
+
+        var releaseStr = releaseDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+                         ' at ' + releaseTime;
+
+        statusDiv.className = 'mt-2 text-xs rounded-lg p-2 bg-green-500/20 border border-green-500/30 text-green-300';
+        if (daysUntil > 0) {
+            statusDiv.innerHTML = '<span class="font-medium">Snipe scheduled!</span> Reservations release on ' + releaseStr + ' (' + daysUntil + 'd ' + hoursUntil + 'h from now)';
+        } else if (hoursUntil > 0) {
+            statusDiv.innerHTML = '<span class="font-medium">Snipe scheduled!</span> Reservations release on ' + releaseStr + ' (' + hoursUntil + ' hours from now)';
+        } else {
+            var minsUntil = Math.floor(msUntilRelease / (1000 * 60));
+            statusDiv.innerHTML = '<span class="font-medium">Snipe scheduled!</span> Reservations release on ' + releaseStr + ' (' + minsUntil + ' minutes from now)';
+        }
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    updateSnipeStatus();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Resy Bot{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center gap-3">
+    {% if daemon_running %}
+    <span class="flex items-center gap-2 text-sm text-green-400">
+        <span class="relative flex h-3 w-3">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        </span>
+        Daemon Running
+    </span>
+    <form action="/daemon/stop" method="post">
+        <button type="submit" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all">
+            Stop Daemon
+        </button>
+    </form>
+    {% else %}
+    <span class="flex items-center gap-2 text-sm text-gray-400">
+        <span class="h-3 w-3 rounded-full bg-gray-500"></span>
+        Daemon Stopped
+    </span>
+    <form action="/daemon/start" method="post">
+        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-all {% if not has_credentials %}opacity-50 cursor-not-allowed{% endif %}" {% if not has_credentials %}disabled title="Configure credentials first"{% endif %}>
+            Start Daemon
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Next Snipe Countdown Banner -->
+{% if next_snipe and daemon_running %}
+<div class="glass rounded-2xl p-6 mb-6 border border-amber-500/30 bg-gradient-to-r from-amber-500/10 to-orange-500/10">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
+            <div class="w-14 h-14 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
+                <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                </svg>
+            </div>
+            <div>
+                <p class="text-sm text-amber-300/70">Next Snipe</p>
+                <h3 class="text-xl font-bold text-white">{{ next_snipe_restaurant.name if next_snipe_restaurant else 'Unknown' }}</h3>
+                <p class="text-sm text-gray-400">{{ next_snipe.target_date.strftime('%B %d, %Y') }} - Party of {{ next_snipe.party_size }}</p>
+            </div>
+        </div>
+        <div class="text-right">
+            <p class="text-sm text-amber-300/70">Snipe fires at</p>
+            <p class="text-2xl font-bold text-amber-400">{{ next_snipe.snipe_at.strftime('%b %d, %H:%M') }}</p>
+            <p class="text-sm text-gray-400" id="countdown" data-target="{{ next_snipe.snipe_at.isoformat() }}">
+                {% set delta = next_snipe.snipe_at - now %}
+                {% set hours = (delta.total_seconds() // 3600)|int %}
+                {% set minutes = ((delta.total_seconds() % 3600) // 60)|int %}
+                {% if hours > 24 %}
+                    {{ (hours // 24)|int }}d {{ hours % 24 }}h remaining
+                {% elif hours > 0 %}
+                    {{ hours }}h {{ minutes }}m remaining
+                {% else %}
+                    {{ minutes }}m remaining
+                {% endif %}
+            </p>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Stats Cards -->
+<div class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5 mb-8">
+    <!-- Restaurants Card -->
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                    </svg>
+                </div>
+            </div>
+            <div class="ml-5">
+                <p class="text-sm font-medium text-gray-400">Restaurants</p>
+                <p class="text-3xl font-bold text-white">{{ restaurant_count }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pending Reservations Card -->
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 bg-gradient-to-br from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                </div>
+            </div>
+            <div class="ml-5">
+                <p class="text-sm font-medium text-gray-400">Pending Snipes</p>
+                <p class="text-3xl font-bold text-white">{{ pending_count }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Daemon Status Card -->
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 {% if daemon_running %}bg-gradient-to-br from-green-500 to-emerald-600{% else %}bg-gradient-to-br from-gray-500 to-gray-600{% endif %} rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path>
+                    </svg>
+                </div>
+            </div>
+            <div class="ml-5">
+                <p class="text-sm font-medium text-gray-400">Daemon Status</p>
+                <p class="text-xl font-bold {% if daemon_running %}text-green-400{% else %}text-gray-400{% endif %}">
+                    {% if daemon_running %}Running{% else %}Stopped{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Credentials Card -->
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 {% if has_credentials %}bg-gradient-to-br from-purple-500 to-purple-600{% else %}bg-gradient-to-br from-red-500 to-red-600{% endif %} rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+                    </svg>
+                </div>
+            </div>
+            <div class="ml-5">
+                <p class="text-sm font-medium text-gray-400">Credentials</p>
+                <p class="text-xl font-bold {% if has_credentials %}text-green-400{% else %}text-red-400{% endif %}">
+                    {% if has_credentials %}Configured{% else %}Not Set{% endif %}
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Monitors Card -->
+    <div class="glass rounded-2xl p-6 card-hover transition-all">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                </div>
+            </div>
+            <div class="ml-5">
+                <p class="text-sm font-medium text-gray-400">Active Monitors</p>
+                <p class="text-3xl font-bold text-white">{{ monitor_count }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Upcoming Snipes -->
+    <div class="glass rounded-2xl p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-resy-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+            </svg>
+            Upcoming Snipes
+        </h2>
+        {% if upcoming_snipes %}
+        <div class="space-y-3">
+            {% for snipe in upcoming_snipes[:5] %}
+            {% set restaurant = restaurant_map.get(snipe.restaurant_id) %}
+            <div class="bg-white/5 rounded-xl p-4 border border-white/10">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <h3 class="font-semibold text-white">{{ restaurant.name if restaurant else 'Unknown' }}</h3>
+                        <p class="text-sm text-gray-400">{{ snipe.target_date.strftime('%B %d, %Y') }} &bull; Party of {{ snipe.party_size }}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-xs text-gray-500">Snipe at</p>
+                        <p class="text-sm font-medium text-amber-400">{{ snipe.snipe_at.strftime('%b %d, %H:%M') }}</p>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <p>No upcoming snipes scheduled</p>
+            <a href="/reservations" class="text-resy-400 hover:text-resy-300 text-sm mt-2 inline-block">Schedule one now &rarr;</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="glass rounded-2xl p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-resy-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+            </svg>
+            Recent Activity
+        </h2>
+        {% if history %}
+        <div class="space-y-3">
+            {% for item in history %}
+            <div class="bg-white/5 rounded-xl p-4 border border-white/10">
+                <div class="flex items-center gap-4">
+                    <div class="flex-shrink-0">
+                        {% if item.success %}
+                        <div class="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                        {% else %}
+                        <div class="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                            <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <p class="font-medium text-white truncate">{{ item.restaurant_name }}</p>
+                        <p class="text-sm text-gray-400">
+                            {{ item.target_date.strftime('%b %d') }} &bull;
+                            {% if item.success %}
+                            <span class="text-green-400">Booked {{ item.booked_time }}</span>
+                            {% else %}
+                            <span class="text-red-400">Failed</span>
+                            {% endif %}
+                        </p>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        {{ item.attempted_at.strftime('%H:%M') }}
+                    </div>
+                    {% if not item.success and item.error_message %}
+                    <button onclick="toggleHistoryError({{ item.id }})" class="p-1 text-gray-400 hover:text-red-400 transition-all" title="View error details">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                    </button>
+                    {% endif %}
+                </div>
+                {% if not item.success and item.error_message %}
+                <div id="historyError{{ item.id }}" class="hidden mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                    <p class="text-red-300 text-xs font-mono whitespace-pre-wrap break-all">{{ item.error_message }}</p>
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-gray-400">
+            <svg class="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <p>No activity yet</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if not has_credentials %}
+<!-- Setup Banner -->
+<div class="mt-6 glass rounded-2xl p-6 border border-amber-500/30 bg-amber-500/10">
+    <div class="flex items-center gap-4">
+        <div class="flex-shrink-0">
+            <svg class="w-8 h-8 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+        </div>
+        <div class="flex-1">
+            <h3 class="font-semibold text-amber-200">Setup Required</h3>
+            <p class="text-sm text-amber-300/70">Configure your Resy credentials to start using the bot.</p>
+        </div>
+        <a href="/settings" class="bg-amber-500 hover:bg-amber-600 text-black font-medium px-4 py-2 rounded-lg transition-all">
+            Go to Settings
+        </a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleHistoryError(itemId) {
+    var details = document.getElementById('historyError' + itemId);
+    if (details.classList.contains('hidden')) {
+        details.classList.remove('hidden');
+    } else {
+        details.classList.add('hidden');
+    }
+}
+</script>
+{% endblock %}

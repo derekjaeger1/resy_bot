@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Resy Bot{% endblock %}
+
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">Settings</h1>
+
+{% if message %}
+<div class="glass rounded-xl p-4 mb-6 border border-green-500/30 bg-green-500/10">
+    <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+        <p class="text-green-200">{{ message }}</p>
+    </div>
+</div>
+{% endif %}
+
+{% if error %}
+<div class="glass rounded-xl p-4 mb-6 border border-red-500/30 bg-red-500/10">
+    <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+        <p class="text-red-200">{{ error }}</p>
+    </div>
+</div>
+{% endif %}
+
+<!-- Easy Login -->
+<div class="glass rounded-2xl p-6 mb-6 border border-green-500/20">
+    <h2 class="text-xl font-bold mb-2 flex items-center gap-2">
+        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        Quick Login
+        <span class="text-xs font-normal text-green-400 bg-green-500/20 px-2 py-0.5 rounded-full">Recommended</span>
+    </h2>
+    <p class="text-gray-400 text-sm mb-4">Log in with your Resy email and password. No need to copy tokens manually!</p>
+
+    <form action="/settings/login" method="post" class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Resy Email</label>
+                <input type="email" name="email" required placeholder="your@email.com" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-green-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Resy Password</label>
+                <input type="password" name="password" required placeholder="Your Resy password" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-green-500">
+            </div>
+        </div>
+        <button type="submit" class="w-full bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"></path>
+            </svg>
+            Log In to Resy
+        </button>
+    </form>
+
+    <p class="text-xs text-gray-500 mt-3">Your password is sent directly to Resy and is not stored.</p>
+</div>
+
+{% if credentials %}
+<div class="glass rounded-xl p-4 mb-6 border border-blue-500/30 bg-blue-500/10">
+    <div class="flex items-center gap-3">
+        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <p class="text-blue-200">Logged in as <strong>{{ credentials.email or 'Unknown' }}</strong></p>
+        <form action="/settings/clear" method="post" class="ml-auto" onsubmit="return confirm('Log out and clear credentials?')">
+            <button type="submit" class="text-sm text-blue-300 hover:text-white underline">Log out</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Manual Credentials Form -->
+    <div class="glass rounded-2xl p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-resy-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path>
+            </svg>
+            Manual Credentials
+            <span class="text-xs font-normal text-gray-400">(Advanced)</span>
+        </h2>
+
+        <form action="/settings/credentials" method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">API Key</label>
+                <input type="password" name="api_key" required value="{{ credentials.api_key if credentials else '' }}" placeholder="Paste your API key" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500 font-mono text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Auth Token</label>
+                <input type="password" name="auth_token" required value="{{ credentials.auth_token if credentials else '' }}" placeholder="Paste your auth token" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500 font-mono text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Payment Method ID (optional)</label>
+                <input type="text" name="payment_method_id" value="{{ credentials.payment_method_id if credentials and credentials.payment_method_id else '' }}" placeholder="e.g., 12345" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Email (for reference)</label>
+                <input type="email" name="email" value="{{ credentials.email if credentials else '' }}" placeholder="your@email.com" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            </div>
+            <div class="flex gap-3 pt-2">
+                <button type="submit" class="flex-1 bg-resy-600 hover:bg-resy-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                    Save Credentials
+                </button>
+            </div>
+        </form>
+
+        <div class="mt-4 pt-4 border-t border-white/10 flex gap-3">
+            <form action="/settings/test" method="post" class="flex-1">
+                <input type="hidden" name="api_key" value="{{ credentials.api_key if credentials else '' }}">
+                <input type="hidden" name="auth_token" value="{{ credentials.auth_token if credentials else '' }}">
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all {% if not credentials %}opacity-50 cursor-not-allowed{% endif %}" {% if not credentials %}disabled{% endif %}>
+                    Test Connection
+                </button>
+            </form>
+            <form action="/settings/clear" method="post" onsubmit="return confirm('Clear all credentials?')">
+                <button type="submit" class="bg-red-600/20 hover:bg-red-600/30 text-red-400 px-4 py-2 rounded-lg font-medium transition-all {% if not credentials %}opacity-50 cursor-not-allowed{% endif %}" {% if not credentials %}disabled{% endif %}>
+                    Clear
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- How to Get Credentials -->
+    <div class="glass rounded-2xl p-6">
+        <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+            <svg class="w-5 h-5 text-resy-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            How to Get Credentials
+        </h2>
+
+        <ol class="space-y-4 text-gray-300">
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                <span>Log into <a href="https://resy.com" target="_blank" class="text-resy-400 hover:text-resy-300 underline">resy.com</a> in your browser</span>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                <span>Open Developer Tools (<kbd class="px-1.5 py-0.5 bg-white/10 rounded text-xs">Cmd+Option+I</kbd> on Mac, <kbd class="px-1.5 py-0.5 bg-white/10 rounded text-xs">F12</kbd> on Windows)</span>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">3</span>
+                <span>Go to the <strong>Network</strong> tab</span>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">4</span>
+                <span>Navigate to any restaurant page</span>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">5</span>
+                <span>Find requests to <code class="px-1.5 py-0.5 bg-white/10 rounded text-xs">api.resy.com</code></span>
+            </li>
+            <li class="flex gap-3">
+                <span class="flex-shrink-0 w-6 h-6 bg-resy-600 rounded-full flex items-center justify-center text-sm font-bold">6</span>
+                <div>
+                    <span>Look for these headers:</span>
+                    <ul class="mt-2 space-y-2 text-sm">
+                        <li class="bg-white/5 rounded-lg p-3">
+                            <p class="font-medium text-white">Authorization</p>
+                            <p class="text-gray-400">Copy the value after <code class="text-resy-400">ResyAPI api_key="</code></p>
+                        </li>
+                        <li class="bg-white/5 rounded-lg p-3">
+                            <p class="font-medium text-white">X-Resy-Auth-Token</p>
+                            <p class="text-gray-400">Copy the entire value</p>
+                        </li>
+                    </ul>
+                </div>
+            </li>
+        </ol>
+
+        <div class="mt-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+            <div class="flex gap-3">
+                <svg class="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+                <div>
+                    <p class="font-medium text-amber-200">Credentials Expire</p>
+                    <p class="text-sm text-amber-300/70">Resy periodically expires credentials. If snipes start failing, get fresh credentials.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Finding Venue IDs -->
+<div class="glass rounded-2xl p-6 mt-6">
+    <h2 class="text-xl font-bold mb-4 flex items-center gap-2">
+        <svg class="w-5 h-5 text-resy-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+        Finding Venue IDs
+    </h2>
+    <p class="text-gray-300 mb-4">To add a restaurant, you need its Venue ID from Resy:</p>
+    <ol class="space-y-2 text-gray-300 text-sm">
+        <li>1. Go to the restaurant's page on Resy</li>
+        <li>2. Open Developer Tools &rarr; Network tab</li>
+        <li>3. Look for a request to <code class="px-1.5 py-0.5 bg-white/10 rounded text-xs">/find</code> or <code class="px-1.5 py-0.5 bg-white/10 rounded text-xs">/config</code></li>
+        <li>4. Find the <code class="px-1.5 py-0.5 bg-white/10 rounded text-xs">venue_id</code> parameter in the URL</li>
+    </ol>
+    <p class="text-gray-400 text-sm mt-4">
+        <strong>Tip:</strong> Check <a href="https://www.nycrsvps.com/" target="_blank" class="text-resy-400 hover:text-resy-300 underline">NYC RSVPs</a> for popular NYC restaurant release schedules.
+    </p>
+</div>
+{% endblock %}
