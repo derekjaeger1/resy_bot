@@ -2,6 +2,8 @@
 
 A reservation sniper for [Resy](https://resy.com) that helps you book hard-to-get restaurant reservations.
 
+![Dashboard](docs/dashboard.png)
+
 ## Features
 
 - **Web Interface** - Modern dark-themed UI for managing restaurants and reservations
