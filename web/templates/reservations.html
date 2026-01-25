@@ -139,8 +139,13 @@
                     </svg>
                 </button>
                 {% if res.status.value == 'pending' %}
-                <!-- Edit Button -->
-                <button onclick="openEditModal(this)" data-id="{{ res.id }}" data-date="{{ res.target_date.strftime('%Y-%m-%d') }}" data-party="{{ res.party_size }}" data-name="{{ restaurant.name if restaurant else 'Unknown' }}" data-prefs='{{ res.preferred_times|default("[]", true) }}' class="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all" title="Edit">
+                <!-- Edit Button (htmx) -->
+                <button hx-get="/reservations/{{ res.id }}/edit-form"
+                        hx-target="#editModalContent"
+                        hx-swap="innerHTML"
+                        onclick="document.getElementById('editModal').classList.remove('hidden')"
+                        class="p-2 text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+                        title="Edit">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                     </svg>
@@ -239,48 +244,14 @@
 </div>
 {% endif %}
 
-<!-- Edit Modal -->
-<div id="editModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-    <div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
-        <h2 class="text-xl font-bold mb-4">Edit Reservation - <span id="editRestaurantName"></span></h2>
-        <form id="editForm" action="" method="post" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Target Date</label>
-                <input type="date" name="target_date" id="editTargetDate" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
-                <input type="number" name="party_size" id="editPartySize" required min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
-                    <input type="time" name="preferred_time" id="editPreferredTime" value="19:00" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
-                    <select name="time_window" id="editTimeWindow" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
-                        <option value="30">± 30 min</option>
-                        <option value="60" selected>± 1 hour</option>
-                        <option value="90">± 1.5 hours</option>
-                        <option value="120">± 2 hours</option>
-                    </select>
-                </div>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-300 mb-1">Table Type (optional)</label>
-                <input type="text" name="table_type" id="editTableType" placeholder="e.g., Dining Room, Patio" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
-                <p class="text-xs text-gray-500 mt-1">Prefers tables matching this text (e.g., "dining" avoids bar seats)</p>
-            </div>
-            <div class="flex gap-3 pt-2">
-                <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
-                    Cancel
-                </button>
-                <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
-                    Save Changes
-                </button>
-            </div>
-        </form>
+<!-- Edit Modal (htmx container) -->
+<div id="editModal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50" onclick="if(event.target === this) this.classList.add('hidden')">
+    <div id="editModalContent">
+        <!-- Content loaded via htmx -->
+        <div class="glass rounded-2xl p-6 w-full max-w-md mx-4 text-center">
+            <div class="animate-spin w-8 h-8 border-2 border-resy-500 border-t-transparent rounded-full mx-auto"></div>
+            <p class="text-gray-400 mt-2">Loading...</p>
+        </div>
     </div>
 </div>
 <!-- Duplicate Modal -->
@@ -318,48 +289,6 @@ function toggleError(resId) {
         details.classList.add('hidden');
         chevron.style.transform = 'rotate(0deg)';
     }
-}
-
-function openEditModal(btn) {
-    var reservationId = btn.dataset.id;
-    var targetDate = btn.dataset.date;
-    var partySize = btn.dataset.party;
-    var restaurantName = btn.dataset.name;
-    var preferredTimes = [];
-
-    try {
-        preferredTimes = JSON.parse(btn.dataset.prefs || '[]');
-    } catch (e) {
-        console.error('Failed to parse prefs:', e);
-    }
-
-    document.getElementById('editForm').action = '/reservations/' + reservationId + '/edit';
-    document.getElementById('editTargetDate').value = targetDate;
-    document.getElementById('editPartySize').value = partySize;
-    document.getElementById('editRestaurantName').textContent = restaurantName;
-
-    // Parse preferred times to populate form fields
-    if (preferredTimes && preferredTimes.length > 0) {
-        var pref = preferredTimes[0];
-        if (pref.time) {
-            document.getElementById('editPreferredTime').value = pref.time;
-        }
-        if (pref.window_minutes) {
-            document.getElementById('editTimeWindow').value = pref.window_minutes;
-        }
-        if (pref.table_type) {
-            document.getElementById('editTableType').value = pref.table_type;
-        } else {
-            document.getElementById('editTableType').value = '';
-        }
-    } else {
-        // Reset to defaults
-        document.getElementById('editPreferredTime').value = '19:00';
-        document.getElementById('editTimeWindow').value = '60';
-        document.getElementById('editTableType').value = '';
-    }
-
-    document.getElementById('editModal').classList.remove('hidden');
 }
 
 function openDuplicateModal(reservationId, restaurantName, originalDate) {

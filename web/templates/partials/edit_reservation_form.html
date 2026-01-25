@@ -1,0 +1,41 @@
+<div class="glass rounded-2xl p-6 w-full max-w-md mx-4">
+    <h2 class="text-xl font-bold mb-4">Edit Reservation - {{ restaurant_name }}</h2>
+    <form action="/reservations/{{ reservation_id }}/edit" method="post" class="space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Target Date</label>
+            <input type="date" name="target_date" value="{{ target_date }}" required class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Party Size</label>
+            <input type="number" name="party_size" value="{{ party_size }}" required min="1" max="20" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Preferred Time</label>
+                <input type="time" name="preferred_time" value="{{ preferred_time }}" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Time Window</label>
+                <select name="time_window" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-resy-500">
+                    <option value="30" {% if time_window == 30 %}selected{% endif %}>± 30 min</option>
+                    <option value="60" {% if time_window == 60 %}selected{% endif %}>± 1 hour</option>
+                    <option value="90" {% if time_window == 90 %}selected{% endif %}>± 1.5 hours</option>
+                    <option value="120" {% if time_window == 120 %}selected{% endif %}>± 2 hours</option>
+                </select>
+            </div>
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-300 mb-1">Table Type (optional)</label>
+            <input type="text" name="table_type" value="{{ table_type }}" placeholder="e.g., Dining Room, Patio" class="w-full bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-resy-500">
+            <p class="text-xs text-gray-500 mt-1">Prefers tables matching this text (e.g., "dining" avoids bar seats)</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+            <button type="button" onclick="document.getElementById('editModal').classList.add('hidden')" class="flex-1 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                Cancel
+            </button>
+            <button type="submit" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-all">
+                Save Changes
+            </button>
+        </div>
+    </form>
+</div>

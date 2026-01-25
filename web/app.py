@@ -321,6 +321,44 @@ def create_app(db: Database = None, daemon: SchedulerDaemon = None) -> FastAPI:
 
         return RedirectResponse("/reservations", status_code=303)
 
+    @app.get("/reservations/{reservation_id}/edit-form", response_class=HTMLResponse)
+    async def get_edit_form(request: Request, reservation_id: int):
+        """Get pre-filled edit form for htmx."""
+        reservations = db.get_scheduled_reservations(ReservationStatus.PENDING)
+        reservation = next((r for r in reservations if r.id == reservation_id), None)
+        if not reservation:
+            raise HTTPException(404, "Reservation not found or not pending")
+
+        restaurant = db.get_restaurant(reservation.restaurant_id)
+
+        # Parse preferred times
+        preferred_time = "19:00"
+        time_window = 60
+        table_type = ""
+
+        if reservation.preferred_times:
+            import json as json_module
+            try:
+                prefs = json_module.loads(reservation.preferred_times)
+                if prefs and len(prefs) > 0:
+                    pref = prefs[0]
+                    preferred_time = pref.get("time", "19:00")
+                    time_window = pref.get("window_minutes", 60)
+                    table_type = pref.get("table_type", "")
+            except Exception:
+                pass
+
+        return templates.TemplateResponse("partials/edit_reservation_form.html", {
+            "request": request,
+            "reservation_id": reservation_id,
+            "restaurant_name": restaurant.name if restaurant else "Unknown",
+            "target_date": reservation.target_date.strftime("%Y-%m-%d"),
+            "party_size": reservation.party_size,
+            "preferred_time": preferred_time,
+            "time_window": time_window,
+            "table_type": table_type,
+        })
+
     @app.post("/reservations/{reservation_id}/edit")
     async def edit_reservation(
         reservation_id: int,
