@@ -106,7 +106,7 @@
                     <p class="text-gray-400 text-sm">
                         Target: {{ group.target_date.strftime('%b %d, %Y') }}
                         <span class="mx-2">|</span>
-                        {{ group.first_timestamp.strftime('%m/%d %H:%M:%S') }}
+                        {{ group.first_timestamp|format_datetime_sec }}
                     </p>
                 </div>
             </div>
@@ -149,7 +149,7 @@
                     {% for log in group.logs %}
                     <tr class="hover:bg-white/5 transition-colors">
                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-300">
-                            {{ log.timestamp.strftime('%H:%M:%S') }}
+                            {{ log.timestamp|format_time_sec }}
                         </td>
                         <td class="px-4 py-2 whitespace-nowrap text-sm text-gray-400">
                             {% if log.elapsed_ms is not none %}

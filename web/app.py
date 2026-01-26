@@ -1,7 +1,8 @@
 """FastAPI web application for Resy Bot."""
 
 import json
-from datetime import datetime, date, time, timedelta
+from datetime import datetime, date, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional
 
@@ -41,11 +42,26 @@ def create_app(db: Database = None, daemon: SchedulerDaemon = None) -> FastAPI:
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
     # Add custom template filters
+    # Use Eastern Time for display (NYC)
+    eastern = ZoneInfo("America/New_York")
+
+    def to_eastern(dt):
+        """Convert a naive UTC datetime to Eastern Time."""
+        if dt is None:
+            return None
+        # Assume naive datetimes from DB are UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(eastern)
+
     @app.on_event("startup")
     async def setup_jinja():
         templates.env.filters["format_time"] = lambda t: t.strftime("%H:%M") if t else ""
         templates.env.filters["format_date"] = lambda d: d.strftime("%Y-%m-%d") if d else ""
-        templates.env.filters["format_datetime"] = lambda dt: dt.strftime("%Y-%m-%d %H:%M") if dt else ""
+        templates.env.filters["format_datetime"] = lambda dt: to_eastern(dt).strftime("%Y-%m-%d %H:%M") if dt else ""
+        templates.env.filters["format_datetime_short"] = lambda dt: to_eastern(dt).strftime("%m/%d %H:%M") if dt else ""
+        templates.env.filters["format_datetime_sec"] = lambda dt: to_eastern(dt).strftime("%m/%d %H:%M:%S") if dt else ""
+        templates.env.filters["format_time_sec"] = lambda dt: to_eastern(dt).strftime("%H:%M:%S") if dt else ""
 
     # ==================== Dashboard ====================
 
