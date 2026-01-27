@@ -26,14 +26,15 @@ SNIPE_EARLY_WAKE_SECONDS = 5
 # How many seconds before release time to START polling
 # This accounts for network latency - your request needs to be in-flight
 # when slots drop, not sent after they drop
-PRE_POLL_SECONDS = 3
+# Keep this low (1s) to reduce rate limiting risk on competitive restaurants
+PRE_POLL_SECONDS = 1
 
 # Polling interval during snipe window (in seconds)
-# Keep this low for aggressive polling - Resy doesn't rate limit
+# 100ms is aggressive but sniper has 429 backoff if rate limited
 POLL_INTERVAL_SECONDS = 0.1
 
-# Request timeout in seconds
-REQUEST_TIMEOUT_SECONDS = 10
+# Request timeout in seconds (increased from 10 to handle occasional slow responses)
+REQUEST_TIMEOUT_SECONDS = 15
 
 # User agent for requests
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"

@@ -189,18 +189,42 @@ class ReservationSniper:
 
             last_error = None
             attempts = 0
+            failed_tokens = set()  # Track tokens that failed so we try different slots
 
             while time_module.time() < end_time:
                 attempts += 1
 
                 try:
-                    # Find available slots
-                    slot = client.find_best_slot(
+                    # Get all matching slots so we can skip failed ones
+                    all_slots = client.find_slots(
                         venue_id=venue_id,
                         party_size=party_size,
                         date=target_date,
-                        preferred_times=preferred_times,
                     )
+
+                    # Filter to matching slots that we haven't tried yet
+                    slot = None
+                    for s in all_slots:
+                        # Skip slots we already tried and failed
+                        if s.token in failed_tokens:
+                            continue
+                        # Check if it matches preferences
+                        if not preferred_times:
+                            slot = s
+                            break
+                        for pref in preferred_times:
+                            if pref.matches(s):
+                                slot = s
+                                break
+                        if slot:
+                            break
+
+                    # If all matching slots failed, try any slot we haven't tried
+                    if not slot:
+                        for s in all_slots:
+                            if s.token not in failed_tokens:
+                                slot = s
+                                break
 
                     if slot:
                         logger.info(f"Found slot: {slot.time_slot} ({slot.table_type})")
@@ -210,7 +234,9 @@ class ReservationSniper:
                             json.dumps({
                                 "time_slot": slot.time_slot,
                                 "table_type": slot.table_type,
+                                "token": slot.token[:100] if slot.token else None,
                                 "attempt": attempts,
+                                "skipped_failed": len(failed_tokens),
                             }),
                         )
 
@@ -228,15 +254,16 @@ class ReservationSniper:
                             self._record_result(reservation, result, restaurant)
                             return result
 
-                        # Booking failed - immediately retry without delay
+                        # Booking failed - mark this token as failed and try a different slot
+                        failed_tokens.add(slot.token)
                         last_error = result.message
-                        logger.warning(f"Booking attempt failed: {result.message}")
+                        logger.warning(f"Booking attempt failed: {result.message}, will try different slot")
                         self._log(
                             SnipeLogType.API_ERROR,
-                            f"Booking attempt failed",
-                            json.dumps({"error": result.message, "attempt": attempts}),
+                            f"Booking attempt failed, trying different slot",
+                            json.dumps({"error": result.message, "attempt": attempts, "failed_tokens": len(failed_tokens)}),
                         )
-                        continue  # Skip delay, try again immediately
+                        continue  # Skip delay, try again immediately with different slot
                     else:
                         logger.debug(f"No slots found (attempt {attempts})")
                         # Only log every 10th attempt to avoid log spam
@@ -254,6 +281,11 @@ class ReservationSniper:
                         f"API error during polling",
                         json.dumps({"error": str(e), "attempt": attempts}),
                     )
+                    # Back off on rate limit errors
+                    if "429" in str(e) or "Rate Limit" in str(e):
+                        logger.info("Rate limited, backing off 500ms")
+                        time_module.sleep(0.5)
+                        continue
 
                 # Small delay before retrying (only when no slots found)
                 time_module.sleep(POLL_INTERVAL_SECONDS)
