@@ -17,6 +17,8 @@ from resy.client import ResyClient, ResyClientError, login as resy_login, Authen
 from resy.models import ResyCredentials
 from scheduler.daemon import SchedulerDaemon
 from data.nyc_restaurants import NYC_RESTAURANTS
+except ModuleNotFoundError:
+    NYC_RESTAURANTS = []
 
 # Paths
 WEB_DIR = Path(__file__).parent
