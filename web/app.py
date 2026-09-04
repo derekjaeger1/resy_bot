@@ -16,7 +16,9 @@ from storage.models import ReleasePattern, ReservationStatus, MonitorStatus, Sni
 from resy.client import ResyClient, ResyClientError, login as resy_login, AuthenticationError, search_venues
 from resy.models import ResyCredentials
 from scheduler.daemon import SchedulerDaemon
-from data.nyc_restaurants import NYC_RESTAURANTS
+
+try:
+    from data.nyc_restaurants import NYC_RESTAURANTS
 except ModuleNotFoundError:
     NYC_RESTAURANTS = []
 
