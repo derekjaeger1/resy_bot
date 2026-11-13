@@ -106,9 +106,24 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     async def lifespan(_: FastAPI):
         # One-time cleanup of an old V2 default we previously saved for
         # Straker's. Resy's current published rule is two weeks at midnight.
+        # Recalculate any still-pending legacy drop job so the old 9 AM value
+        # cannot fire later.
         for restaurant in db.get_restaurants():
             if "straker" in restaurant.name.lower() and restaurant.days_in_advance == 14 and restaurant.release_time == dt_time(9, 0):
-                db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
+                corrected = db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
+                if corrected:
+                    for reservation in db.get_pending_reservations():
+                        if reservation.restaurant_id != corrected.id:
+                            continue
+                        corrected_fire = db.calculate_snipe_time(corrected, reservation.target_date)
+                        if corrected_fire > now_local_naive():
+                            db.update_reservation(reservation.id, snipe_at=corrected_fire)
+                        else:
+                            db.update_reservation_status(
+                                reservation.id,
+                                ReservationStatus.CANCELLED,
+                                result_message="Cancelled legacy job after correcting Straker's release time",
+                            )
 
         if not daemon.is_running():
             daemon.start()
