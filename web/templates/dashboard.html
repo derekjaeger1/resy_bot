@@ -4,15 +4,15 @@
 <section class="home-hero">
   {% if not has_credentials %}
     <h1>Connect Resy to start.</h1>
-    <p>Once connected, you can watch exact reservation times and auto-book them when they appear.</p>
+    <p>Then search current availability, watch date ranges, and auto-book qualifying tables.</p>
     <a class="cta" href="/settings">Connect Resy</a>
   {% else %}
     <div>
       <span class="eyebrow">RESERVATION WATCHER</span>
       <h1>Your tables, handled.</h1>
-      <p>Pick an exact time. We’ll watch for openings and handle the drop.</p>
+      <p>Search now. If nothing is open, we keep watching your whole date and time range.</p>
     </div>
-    <a class="cta compact" href="/new">＋ Watch a table</a>
+    <a class="cta compact" href="/new">＋ Find a table</a>
   {% endif %}
 </section>
 
@@ -22,36 +22,46 @@
 
 <div class="section-title">
   <h2>Watching</h2>
-  <span class="subtle">{{ active_monitors|length }} active</span>
+  <span class="subtle">{{ watch_groups|length }} active</span>
 </div>
 
-{% if active_monitors %}
-  {% for monitor in active_monitors %}
-    {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
-    {% set boost = drop_boost.get(monitor.id) %}
+{% if watch_groups %}
+  {% for group in watch_groups %}
     <article class="watch-card">
       <div class="watch-card-top">
         <div>
-          <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-          <div class="watch-date">{{ monitor.target_date.strftime('%A, %B %-d') }} · {{ monitor.party_size }} guest{{ '' if monitor.party_size==1 else 's' }}</div>
+          <div class="watch-restaurant">{{ group.restaurant.name if group.restaurant else 'Restaurant' }}</div>
+          <div class="watch-date">
+            {% if group.date_start == group.date_end %}
+              {{ group.date_start.strftime('%A, %B %-d') }}
+            {% else %}
+              {{ group.date_start.strftime('%b %-d') }}–{{ group.date_end.strftime('%b %-d') }}
+            {% endif %}
+            · {{ group.party_size }} guest{{ '' if group.party_size==1 else 's' }}
+          </div>
         </div>
         <span class="status watching">WATCHING</span>
       </div>
 
-      <div class="watch-time">{{ monitor.preferred_time|clock }}</div>
-      <div class="watch-exact">Exact time only</div>
+      <div class="watch-time">{{ group.time_start_label }}–{{ group.time_end_label }}</div>
+      <div class="watch-exact">{{ group.date_count }} date{{ '' if group.date_count==1 else 's' }} · first qualifying table wins</div>
 
-      {% if boost %}
-        <div class="boost-row">⚡ Verified drop boost armed for {{ boost.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
+      {% if group.boosts %}
+        <div class="boost-row">
+          ⚡ Verified drop boost armed for {{ group.boosts|length }} date{{ '' if group.boosts|length==1 else 's' }}
+          · next {{ group.boosts[0].snipe_at.strftime('%b %-d at %-I:%M %p') }} ET
+        </div>
       {% else %}
-        <div class="boost-row neutral">↻ Continuous watch active · no verified drop time armed</div>
+        <div class="boost-row neutral">↻ Continuous availability watch active</div>
       {% endif %}
 
-      {% if monitor.last_checked %}
-        <div class="last-check">Last checked {{ monitor.last_checked.strftime('%-I:%M %p') }} ET · {{ monitor.check_count }} checks</div>
+      {% if group.last_checked %}
+        <div class="last-check">Last checked {{ group.last_checked.strftime('%-I:%M %p') }} ET · {{ group.checks }} total checks</div>
+      {% else %}
+        <div class="last-check">Initial availability check queued now</div>
       {% endif %}
 
-      <form method="post" action="/monitors/{{ monitor.id }}/cancel">
+      <form method="post" action="/watch-groups/{{ group.id }}/cancel">
         <button class="text-button" type="submit">Stop watching</button>
       </form>
     </article>
@@ -60,16 +70,15 @@
   <div class="empty-state">
     <div class="empty-icon">◷</div>
     <h3>No tables being watched</h3>
-    <p>Pick a restaurant, date, and exact time.</p>
-    <a class="cta compact" href="/new">Watch a table</a>
+    <p>Choose a restaurant, date range, and time window.</p>
+    <a class="cta compact" href="/new">Find a table</a>
   </div>
 {% endif %}
 
 {% if orphan_snipes %}
-<div class="section-title"><h2>Scheduled</h2></div>
+<div class="section-title"><h2>Legacy scheduled jobs</h2></div>
 {% for res in orphan_snipes %}
   {% set restaurant = restaurant_map.get(res.restaurant_id) %}
-  {% set prefs = pref_map.get(res.id, []) %}
   <article class="watch-card">
     <div class="watch-card-top">
       <div>
@@ -78,7 +87,6 @@
       </div>
       <span class="status armed">ARMED</span>
     </div>
-    {% if prefs %}<div class="watch-time">{{ prefs[0].time|clock }}</div>{% endif %}
     <div class="boost-row">⚡ Fires {{ res.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
     <form method="post" action="/snipes/{{ res.id }}/cancel"><button class="text-button" type="submit">Cancel</button></form>
   </article>
@@ -87,12 +95,12 @@
 
 <div class="section-title"><h2>Recent</h2></div>
 {% if recent_monitors %}
-  {% for monitor in recent_monitors %}
+  {% for monitor in recent_monitors[:8] %}
     {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
     <article class="history-row">
       <div>
         <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-        <div class="watch-date">{{ monitor.target_date.strftime('%b %-d') }} · {{ monitor.party_size }} guests · {{ monitor.preferred_time|clock }}</div>
+        <div class="watch-date">{{ monitor.target_date.strftime('%b %-d') }} · {{ monitor.party_size }} guests{% if monitor.booked_time %} · {{ monitor.booked_time|clock }}{% endif %}</div>
       </div>
       {% if monitor.status.value=='success' %}
         <span class="status booked">BOOKED</span>
