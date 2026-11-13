@@ -412,6 +412,37 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             "url_slug": item.get("url_slug") or "",
         } for item in results if item.get("id")]
 
+    @app.get("/api/watch-groups/{group_id}/availability")
+    async def watch_group_availability(group_id: str):
+        monitors = [m for m in db.get_active_monitors() if m.watch_group_id == group_id]
+        if not monitors:
+            return {"status": "inactive", "slots": []}
+
+        slots = daemon.get_watch_group_availability(group_id)
+        cleaned = []
+        for slot in slots:
+            raw = str(slot.get("time") or "")
+            time_value = raw
+            try:
+                if " " in raw and "-" in raw.split(" ")[0]:
+                    time_value = raw.split(" ", 1)[1][:5]
+                else:
+                    time_value = raw[:5]
+                label = _clock_label(time_value)
+            except Exception:
+                label = raw
+            cleaned.append({
+                "date": slot.get("date"),
+                "time": time_value,
+                "label": label,
+                "type": slot.get("type"),
+            })
+        return {
+            "status": "watching",
+            "checked_at": now_local_naive().strftime("%-I:%M:%S %p"),
+            "slots": cleaned,
+        }
+
     @app.post("/watches")
     @app.post("/snipes")
     async def create_watch(
@@ -523,10 +554,10 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
             current_date += timedelta(days=1)
 
-        # Search immediately. If a qualifying slot is open right now, the
-        # monitor worker attempts to book it within seconds; otherwise the same
-        # rows continue as the background watch.
-        daemon.poll_monitors_now()
+        # Search synchronously before returning the dashboard. The user should
+        # never see an ambiguous "checking" state when the answer is already
+        # available from Resy.
+        immediate = daemon.check_watch_group_now(group_id)
 
         date_label = (
             start_date.strftime("%b %-d")
@@ -534,16 +565,36 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             else f"{start_date.strftime('%b %-d')}–{end_date.strftime('%b %-d')}"
         )
         time_label = f"{_clock_label(time_start)}–{_clock_label(time_end)}"
+
+        if immediate.get("status") == "booked":
+            raw_booked = str(immediate.get("time") or "")
+            try:
+                booked_clock = raw_booked.split(" ")[1][:5] if " " in raw_booked and "-" in raw_booked.split(" ")[0] else raw_booked[:5]
+                booked_label = _clock_label(booked_clock)
+            except Exception:
+                booked_label = raw_booked
+            booked_date = datetime.strptime(immediate["date"], "%Y-%m-%d").strftime("%a, %b %-d")
+            return _redirect(
+                "/",
+                message=f"BOOKED — {restaurant.name}, {booked_date} at {booked_label} for {party_size}.",
+            )
+
+        if immediate.get("status") == "error":
+            return _redirect(
+                "/",
+                error=f"Could not complete the immediate Resy check: {immediate.get('message', 'unknown error')}. The watch remains saved.",
+            )
+
         if drop_count:
             message = (
-                f"Checking {restaurant.name} now for {date_label}, {time_label}. "
-                f"If nothing is open, the watch stays active and {drop_count} verified drop "
-                f"{'attempt is' if drop_count == 1 else 'attempts are'} armed automatically."
+                f"No qualifying table is available right now for {restaurant.name}, {date_label}, "
+                f"{time_label}. Watching continuously; {drop_count} verified drop "
+                f"{'attempt is' if drop_count == 1 else 'attempts are'} also armed."
             )
         else:
             message = (
-                f"Checking {restaurant.name} now for {date_label}, {time_label}. "
-                "If nothing is open, the watch stays active automatically."
+                f"No qualifying table is available right now for {restaurant.name}, "
+                f"{date_label}, {time_label}. Watching continuously."
             )
         return _redirect("/", message=message)
 
