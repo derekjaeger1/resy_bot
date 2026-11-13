@@ -384,7 +384,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "date_obj": parsed_date,
                 "time_label": clock(live.get("time")),
                 "booked_by_sniper": history_match is not None,
-                "can_cancel": bool(live.get("cancellation_allowed", False)),
+                "can_cancel": bool(live.get("reservation_id") and live.get("resy_token")),
             })
 
         account_reservations.sort(
