@@ -42,6 +42,9 @@ class Database:
                 "release_source": "VARCHAR(500)",
                 "release_note": "TEXT",
                 "url_slug": "VARCHAR(255)",
+                "provider": "VARCHAR(32) NOT NULL DEFAULT 'resy'",
+                "provider_venue_id": "VARCHAR(255)",
+                "provider_slug": "VARCHAR(255)",
             },
             "monitored_reservations": {
                 "watch_group_id": "VARCHAR(64)",
@@ -122,9 +125,25 @@ class Database:
             return session.query(Restaurant).filter_by(id=restaurant_id).first()
 
     def get_restaurant_by_venue_id(self, venue_id: int) -> Optional[Restaurant]:
-        """Get a restaurant by venue ID."""
+        """Get a restaurant by legacy venue ID."""
         with self.get_session() as session:
             return session.query(Restaurant).filter_by(venue_id=venue_id).first()
+
+    def get_restaurant_by_provider(
+        self,
+        provider: str,
+        provider_venue_id: str,
+    ) -> Optional[Restaurant]:
+        """Get a restaurant by provider-specific external ID."""
+        with self.get_session() as session:
+            return (
+                session.query(Restaurant)
+                .filter_by(
+                    provider=(provider or "resy").lower(),
+                    provider_venue_id=str(provider_venue_id),
+                )
+                .first()
+            )
 
     def add_restaurant(
         self,
@@ -140,11 +159,22 @@ class Database:
         release_source: Optional[str] = None,
         release_note: Optional[str] = None,
         url_slug: Optional[str] = None,
+        provider: str = "resy",
+        provider_venue_id: Optional[str] = None,
+        provider_slug: Optional[str] = None,
     ) -> Restaurant:
         """Add a new restaurant."""
+        provider = (provider or "resy").lower()
         with self.get_session() as session:
             restaurant = Restaurant(
                 venue_id=venue_id,
+                provider=provider,
+                provider_venue_id=(
+                    str(provider_venue_id)
+                    if provider_venue_id is not None
+                    else str(venue_id)
+                ),
+                provider_slug=provider_slug or url_slug,
                 name=name,
                 release_time=release_time,
                 days_in_advance=days_in_advance,
