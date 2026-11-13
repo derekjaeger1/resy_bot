@@ -77,6 +77,21 @@ def _parse_preferences(raw: str | None) -> list[dict]:
         return []
 
 
+def _has_verified_drop_rule(restaurant) -> bool:
+    """Only arm high-speed drops for restaurant rules we actually trust."""
+    name = (restaurant.name or "").lower()
+
+    # Ambassadors Clubhouse publishes a monthly-block release approximately
+    # two weeks before the first of the month, but no fixed public day/time.
+    # A rolling N-days-before calculation would be wrong, so never arm one.
+    if "ambassadors clubhouse" in name:
+        return False
+
+    # Existing saved rules for other restaurants may be user-entered or
+    # previously verified. New restaurants are never drop-armed on first save.
+    return True
+
+
 def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None) -> FastAPI:
     db = db or Database()
     daemon = daemon or SchedulerDaemon(db)
@@ -132,7 +147,20 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         # watch so an old hidden job can never book unexpectedly.
         active_watches = db.get_active_monitors()
         for reservation in db.get_pending_reservations():
-            if not any(_watch_matches_snipe(monitor, reservation) for monitor in active_watches):
+            restaurant = db.get_restaurant(reservation.restaurant_id)
+            paired = any(_watch_matches_snipe(monitor, reservation) for monitor in active_watches)
+
+            # Never keep a drop job for a restaurant whose public release time
+            # is not actually verified. Ambassadors Clubhouse is the current
+            # known example: it releases a month at a time and publishes no
+            # fixed public hour.
+            if restaurant and not _has_verified_drop_rule(restaurant):
+                db.update_reservation_status(
+                    reservation.id,
+                    ReservationStatus.CANCELLED,
+                    result_message="Cancelled unverified drop boost; continuous watch remains active",
+                )
+            elif not paired:
                 db.update_reservation_status(
                     reservation.id,
                     ReservationStatus.CANCELLED,
@@ -384,7 +412,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         # drop boost if the official release is still in the future.
         snipe_at = db.calculate_snipe_time(restaurant, target)
         drop_armed = False
-        if not is_new_restaurant and snipe_at > now_local_naive():
+        if (
+            not is_new_restaurant
+            and _has_verified_drop_rule(restaurant)
+            and snipe_at > now_local_naive()
+        ):
             preference = {
                 "time": preferred_time,
                 "window_minutes": 0,
@@ -407,10 +439,17 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 f"High-speed drop booking is also armed for {_fmt_fire(snipe_at)} ET."
             )
         else:
-            message = (
-                f"Watching {restaurant.name} for exactly {time_label}. "
-                "If that table opens, I'll attempt to book it automatically."
-            )
+            if not _has_verified_drop_rule(restaurant):
+                message = (
+                    f"Watching {restaurant.name} for exactly {time_label}. "
+                    "Its public drop time is not verified, so I will watch continuously "
+                    "instead of pretending there is a precise release time."
+                )
+            else:
+                message = (
+                    f"Watching {restaurant.name} for exactly {time_label}. "
+                    "If that table opens, I'll attempt to book it automatically."
+                )
         return _redirect("/", message=message)
 
     @app.post("/snipes/{reservation_id}/cancel")
