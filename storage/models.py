@@ -140,6 +140,8 @@ class ReservationHistory(Base):
     booked_time = Column(String(50), nullable=True)
     resy_token = Column(String(255), nullable=True)
     error_message = Column(Text, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    cancellation_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     def __repr__(self) -> str:
