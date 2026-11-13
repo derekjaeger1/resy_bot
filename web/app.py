@@ -371,11 +371,17 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             return None
 
         account_reservations = []
+        today = now_local_naive().date()
         for live in live_reservations:
             try:
                 parsed_date = datetime.strptime(str(live.get("date")), "%Y-%m-%d").date()
             except Exception:
-                parsed_date = now_local_naive().date()
+                continue
+
+            # Resy's reservations endpoint can include historical rows.
+            # The dashboard is an upcoming reservation wallet only.
+            if parsed_date < today:
+                continue
 
             history_match = _matching_history(live)
             account_reservations.append({
