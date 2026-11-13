@@ -1,53 +1,88 @@
 {% extends "base.html" %}
-{% block title %}New Snipe{% endblock %}
+{% block title %}Watch a Table{% endblock %}
 {% block content %}
-<div class="section-title" style="margin-top:0"><h2 style="font-size:26px">New snipe</h2></div>
+<div class="page-head">
+  <h1>Find a table</h1>
+  <p>Choose the exact reservation you want. If it appears, we’ll try to book it automatically.</p>
+</div>
+
 {% if not has_credentials %}
-<div class="notice">Connect your Resy account first. <a href="/settings" style="color:white;font-weight:800">Open Settings →</a></div>
+<div class="notice">Connect your Resy account first. <a href="/settings">Open Settings →</a></div>
 {% endif %}
-<form class="form-card" method="post" action="/snipes" autocomplete="off">
-  <div class="field">
-    <label class="label">Restaurant</label>
-    <input class="input" data-venue-search type="search" placeholder="Start typing, e.g. Carbone" required>
-    <input id="venue-id" type="hidden" name="venue_id" required>
-    <input id="restaurant-name" type="hidden" name="restaurant_name" required>
-    <div id="venue-results" class="search-results"></div>
-    <div id="venue-picked" class="picked"></div>
-    {% if restaurants %}
-    <div class="hint" style="margin:10px 0 7px">Saved</div>
-    <div class="mini-actions" style="flex-wrap:wrap">
-      {% for r in restaurants[:6] %}<button type="button" class="mini" data-saved-venue data-venue-id="{{ r.venue_id }}" data-venue-name="{{ r.name }}">{{ r.name }}</button>{% endfor %}
+
+<form class="watch-form" method="post" action="/watches" autocomplete="off">
+  <section class="booking-card">
+    <div class="field">
+      <label class="label">Restaurant</label>
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input class="input restaurant-input" data-venue-search type="search" placeholder="Search restaurants" required>
+      </div>
+      <input id="venue-id" type="hidden" name="venue_id" required>
+      <input id="restaurant-name" type="hidden" name="restaurant_name" required>
+      <div id="venue-results" class="search-results"></div>
+      <div id="venue-picked" class="picked"></div>
+
+      {% if restaurants %}
+      <div class="saved-row">
+        {% for r in restaurants[:6] %}
+          <button type="button" class="saved-pill" data-saved-venue data-venue-id="{{ r.venue_id }}" data-venue-name="{{ r.name }}">{{ r.name }}</button>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
-    {% endif %}
+
+    <div class="booking-controls">
+      <label class="control-box">
+        <span>Date</span>
+        <input type="date" name="target_date" min="{{ today }}" required>
+      </label>
+      <label class="control-box">
+        <span>Guests</span>
+        <select name="party_size">
+          {% for n in range(1,13) %}
+          <option value="{{ n }}" {% if n==2 %}selected{% endif %}>{{ n }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </div>
+  </section>
+
+  <section class="time-section">
+    <div class="time-heading">
+      <div>
+        <h2>Choose an exact time</h2>
+        <p>We will not book a different time.</p>
+      </div>
+      <div id="selected-time-label" class="selected-time-label">7:30 PM</div>
+    </div>
+
+    <input type="hidden" id="preferred-time" name="preferred_time" value="19:30" required>
+
+    <div class="time-scroller" id="time-scroller">
+      {% for slot in time_slots %}
+      <button
+        type="button"
+        class="time-brick {% if slot.value=='19:30' %}selected{% endif %}"
+        data-time-value="{{ slot.value }}"
+        data-time-label="{{ slot.label }}"
+      >{{ slot.label }}</button>
+      {% endfor %}
+    </div>
+
+    <details class="custom-time">
+      <summary>Choose another exact time</summary>
+      <input id="custom-time-input" class="input" type="time" step="900">
+    </details>
+  </section>
+
+  <div class="auto-book-note">
+    <strong>Automatic booking</strong>
+    <span>We watch this exact slot for new inventory or cancellations. If its official release is still ahead and we know the restaurant’s drop rule, we also arm a high-speed drop attempt.</span>
   </div>
 
-  <div class="grid2">
-    <div class="field"><label class="label">Reservation date</label><input class="input" type="date" name="target_date" min="{{ today }}" required></div>
-    <div class="field"><label class="label">Party size</label><select class="select" name="party_size">{% for n in range(1,13) %}<option value="{{ n }}" {% if n==2 %}selected{% endif %}>{{ n }} guest{{ '' if n==1 else 's' }}</option>{% endfor %}</select></div>
-  </div>
-
-  <div class="field"><label class="label">Ideal time</label><input class="input" type="time" name="preferred_time" value="19:30" required></div>
-  <div class="field">
-    <label class="label">How flexible?</label>
-    <div class="chips">
-      <label class="chip"><input type="radio" name="window_minutes" value="0"><span>Exact</span></label>
-      <label class="chip"><input type="radio" name="window_minutes" value="30"><span>±30m</span></label>
-      <label class="chip"><input type="radio" name="window_minutes" value="60" checked><span>±1h</span></label>
-      <label class="chip"><input type="radio" name="window_minutes" value="90"><span>±1.5h</span></label>
-    </div>
-    <span class="hint">It will never book outside this window.</span>
-  </div>
-
-  <details id="release-rule">
-    <summary>First time at this restaurant? Confirm its drop rule</summary>
-    <p class="hint">This is remembered for future snipes. Existing saved restaurants ignore these defaults.</p>
-    <div class="grid2" style="margin-top:12px">
-      <div class="field" style="margin:0"><label class="label">Days ahead</label><input class="input" type="number" min="0" max="365" name="release_days" value="14"></div>
-      <div class="field" style="margin:0"><label class="label">Drop time (ET)</label><input class="input" type="time" name="release_time" value="09:00"></div>
-    </div>
-  </details>
-
-  <div class="safe" style="margin-top:16px">✓ Only a table inside your selected time window can be booked.<br><span style="opacity:.8">If the original drop already happened, the app will automatically watch for cancellations/openings instead.</span></div>
-  <button class="cta" type="submit" {% if not has_credentials %}disabled style="opacity:.45"{% endif %}>Arm Snipe</button>
+  <button class="cta watch-cta" type="submit" {% if not has_credentials %}disabled{% endif %}>
+    Watch this time
+  </button>
 </form>
 {% endblock %}
