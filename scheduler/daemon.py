@@ -16,7 +16,13 @@ from resy.client import ResyClient
 from storage.database import Database
 from storage.models import ScheduledReservation, ReservationStatus, MonitorStatus
 from .sniper import ReservationSniper, SnipeResult
-from config import SNIPE_EARLY_WAKE_SECONDS, MONITOR_POLL_INTERVAL_MINUTES
+from config import (
+    SNIPE_EARLY_WAKE_SECONDS,
+    MONITOR_POLL_TICK_SECONDS,
+    MONITOR_NEAR_INTERVAL_SECONDS,
+    MONITOR_WEEK_INTERVAL_SECONDS,
+    MONITOR_FAR_INTERVAL_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +263,9 @@ class SchedulerDaemon:
 
         logger.info(f"Polling {len(monitors)} active monitors for cancellations")
 
+        now = datetime.now()
+        today = now.date()
+
         with ResyClient(credentials) as client:
             for monitor in monitors:
                 # The list above is a snapshot. A previous row in the same
@@ -265,6 +274,22 @@ class SchedulerDaemon:
                 active_ids = {m.id for m in self.db.get_active_monitors()}
                 if monitor.id not in active_ids:
                     continue
+
+                # Adaptive cadence: today's/tomorrow's tables are competitive,
+                # while future dates can safely back off.
+                days_away = (monitor.target_date - today).days
+                if days_away <= 1:
+                    min_interval = MONITOR_NEAR_INTERVAL_SECONDS
+                elif days_away <= 7:
+                    min_interval = MONITOR_WEEK_INTERVAL_SECONDS
+                else:
+                    min_interval = MONITOR_FAR_INTERVAL_SECONDS
+
+                if monitor.last_checked:
+                    elapsed = (now - monitor.last_checked).total_seconds()
+                    if elapsed < min_interval:
+                        continue
+
                 try:
                     self._check_monitor(client, monitor)
                 except Exception as e:
@@ -519,10 +544,7 @@ class SchedulerDaemon:
                         "time": refreshed.booked_time,
                     }
 
-        return {
-            "status": "watching",
-            "availability": self.get_watch_group_availability(group_id),
-        }
+        return {"status": "watching"}
 
     def poll_monitors_now(self) -> None:
         """Queue an immediate monitor check without blocking the web request."""
@@ -548,12 +570,16 @@ class SchedulerDaemon:
         # Schedule periodic polling
         self.scheduler.add_job(
             self._poll_monitors,
-            trigger=IntervalTrigger(minutes=MONITOR_POLL_INTERVAL_MINUTES),
+            trigger=IntervalTrigger(seconds=MONITOR_POLL_TICK_SECONDS),
             id=job_id,
             name="Cancellation monitor polling",
             replace_existing=True,
         )
-        logger.info(f"Started monitor polling every {MONITOR_POLL_INTERVAL_MINUTES} minutes")
+        logger.info(
+            f"Started adaptive monitor polling tick every {MONITOR_POLL_TICK_SECONDS}s "
+            f"(near={MONITOR_NEAR_INTERVAL_SECONDS}s, week={MONITOR_WEEK_INTERVAL_SECONDS}s, "
+            f"far={MONITOR_FAR_INTERVAL_SECONDS}s)"
+        )
 
     def stop_monitor_polling(self) -> None:
         """Stop the monitor polling job."""
