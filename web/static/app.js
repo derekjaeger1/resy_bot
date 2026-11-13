@@ -133,7 +133,7 @@ function setupBookingCancellation(){
       const date=form.dataset.date||'';
       const time=form.dataset.time||'';
       const ok=window.confirm(
-        'Cancel '+restaurant+'\n'+[date,time].filter(Boolean).join(' · ')+'?\n\nThis will cancel the reservation in Resy.'
+        'Cancel '+restaurant+'\n'+[date,time].filter(Boolean).join(' · ')+'?\n\nThis will cancel the reservation in Resy. Any restaurant cancellation policy or fee still applies.'
       );
       if(!ok)event.preventDefault();
     });
