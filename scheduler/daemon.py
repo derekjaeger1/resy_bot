@@ -151,16 +151,36 @@ class SchedulerDaemon:
         count = 0
 
         for reservation in reservations:
-            # Only schedule if snipe time is in the future
+            # Always recalculate from the restaurant's CURRENT release rule.
+            # This prevents stale timestamps from surviving rule corrections,
+            # migrations, or long periods while the app was offline.
+            restaurant = self.db.get_restaurant(reservation.restaurant_id)
+            if restaurant:
+                expected_fire = self.db.calculate_snipe_time(
+                    restaurant,
+                    reservation.target_date,
+                )
+                if expected_fire != reservation.snipe_at:
+                    updated = self.db.update_reservation(
+                        reservation.id,
+                        snipe_at=expected_fire,
+                    )
+                    if updated:
+                        reservation = updated
+                        logger.info(
+                            f"Recalculated reservation {reservation.id} fire time "
+                            f"to {expected_fire}"
+                        )
+
+            # Only schedule if snipe time is in the future.
             if reservation.snipe_at > datetime.now():
                 self.schedule_job(reservation)
                 count += 1
             else:
-                # Mark as failed if snipe time has passed
                 self.db.update_reservation_status(
                     reservation.id,
                     ReservationStatus.FAILED,
-                    result_message="Snipe time passed while daemon was not running",
+                    result_message="Official drop time has already passed; use an active watch instead",
                 )
 
         logger.info(f"Loaded {count} pending jobs")
