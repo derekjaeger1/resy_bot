@@ -94,21 +94,7 @@
 </div>
 {% endif %}
 
-{% if booking_history %}
-<details class="booking-history-panel">
-  <summary>Past & cancelled bot bookings</summary>
-  <div class="booking-history-list">
-    {% for booking in booking_history[:12] %}
-      <div class="booking-history-row">
-        <div>
-          <strong>{{ booking.restaurant_name }}</strong>
-          <span>{{ booking.target_date.strftime('%b %-d') }} · {{ booking.booked_time|clock }} · {{ booking.party_size }} guests</span>
-        </div>
-        {% if booking.cancelled_at %}
-          <span class="reservation-state cancelled">CANCELLED</span>
-        {% else %}
-          <span class="reservation-state past">PAST</span>
-        {% endif %}
+
       </div>
     {% endfor %}
   </div>
