@@ -32,6 +32,34 @@ class Database:
 
         # Create tables if they don't exist
         Base.metadata.create_all(self.engine)
+        self._migrate_schema()
+
+    def _migrate_schema(self) -> None:
+        """Small SQLite migrations for persistent Railway databases."""
+        migrations = {
+            "restaurants": {
+                "release_verified": "BOOLEAN NOT NULL DEFAULT 0",
+                "release_source": "VARCHAR(500)",
+                "release_note": "TEXT",
+                "url_slug": "VARCHAR(255)",
+            },
+            "monitored_reservations": {
+                "watch_group_id": "VARCHAR(64)",
+                "time_start": "VARCHAR(10)",
+                "time_end": "VARCHAR(10)",
+            },
+        }
+        with self.engine.begin() as conn:
+            for table, columns in migrations.items():
+                existing = {
+                    row[1]
+                    for row in conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+                }
+                for name, ddl in columns.items():
+                    if name not in existing:
+                        conn.exec_driver_sql(
+                            f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"
+                        )
 
     def get_session(self) -> Session:
         """Get a new database session."""
@@ -104,6 +132,10 @@ class Database:
         release_day_of_week: Optional[int] = None,
         address: Optional[str] = None,
         city: Optional[str] = None,
+        release_verified: bool = False,
+        release_source: Optional[str] = None,
+        release_note: Optional[str] = None,
+        url_slug: Optional[str] = None,
     ) -> Restaurant:
         """Add a new restaurant."""
         with self.get_session() as session:
@@ -116,6 +148,10 @@ class Database:
                 release_day_of_week=release_day_of_week,
                 address=address,
                 city=city,
+                release_verified=release_verified,
+                release_source=release_source,
+                release_note=release_note,
+                url_slug=url_slug,
             )
             session.add(restaurant)
             session.commit()
@@ -364,6 +400,9 @@ class Database:
         preferred_time: str = "19:00",
         time_window: int = 120,
         table_type: str = None,
+        watch_group_id: str = None,
+        time_start: str = None,
+        time_end: str = None,
     ) -> MonitoredReservation:
         """Add a new cancellation monitor."""
         with self.get_session() as session:
@@ -374,6 +413,9 @@ class Database:
                 preferred_time=preferred_time,
                 time_window=time_window,
                 table_type=table_type,
+                watch_group_id=watch_group_id,
+                time_start=time_start,
+                time_end=time_end,
                 status=MonitorStatus.ACTIVE,
             )
             session.add(monitor)
