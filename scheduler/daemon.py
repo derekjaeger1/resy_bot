@@ -40,6 +40,9 @@ class SchedulerDaemon:
         self.scheduler = BackgroundScheduler()
         self._running = False
         self._credentials: Optional[ResyCredentials] = None
+        # monitor_id -> {checked_at, slots, error}. This is the UI's read-only
+        # view of what the watcher already saw; reading it never calls Resy.
+        self._availability_cache: dict[int, dict] = {}
 
         # Set up event listeners
         self.scheduler.add_listener(
@@ -311,6 +314,29 @@ class SchedulerDaemon:
         except Exception:
             return None
 
+    def _cache_monitor_availability(
+        self,
+        monitor,
+        matching_slots: list,
+        error: str | None = None,
+    ) -> None:
+        """Cache the result of the actual watcher poll for the dashboard."""
+        self._availability_cache[monitor.id] = {
+            "checked_at": datetime.now(),
+            "error": error,
+            "slots": [
+                {
+                    "date": monitor.target_date.isoformat(),
+                    "time": str(slot.time_slot),
+                    "type": (
+                        getattr(slot, "type", None)
+                        or getattr(slot, "table_type", None)
+                    ),
+                }
+                for slot in matching_slots
+            ],
+        }
+
     def _check_monitor(self, client: ResyClient, monitor) -> None:
         """Check a single monitor for availability and book if found."""
         # Get restaurant info
@@ -331,10 +357,12 @@ class SchedulerDaemon:
                 date=date_str,
             )
         except Exception as e:
+            self._cache_monitor_availability(monitor, [], error=str(e))
             logger.debug(f"No availability for {restaurant.name} on {date_str}: {e}")
             return
 
         if not slots:
+            self._cache_monitor_availability(monitor, [])
             logger.debug(f"No slots for {restaurant.name} on {date_str}")
             return
 
@@ -371,6 +399,10 @@ class SchedulerDaemon:
                 matching_slots = [s for s in slots if time_pref.matches(s)]
         else:
             matching_slots = [s for s in slots if time_pref.matches(s)]
+
+        # Cache exactly what qualifies for this watch. The dashboard reads
+        # this cache; it never performs its own Resy availability search.
+        self._cache_monitor_availability(monitor, matching_slots)
 
         if not matching_slots:
             logger.debug(
@@ -449,69 +481,43 @@ class SchedulerDaemon:
             logger.error(f"Failed to book cancellation slot: {e}")
             # Don't mark as failed - slot might have been taken, keep monitoring
 
-    def get_watch_group_availability(self, group_id: str) -> list[dict]:
-        """Return a live feed of currently available slots for an active watch group."""
-        credentials = self._get_credentials()
-        if not credentials:
-            return []
-
+    def get_watch_group_availability(self, group_id: str) -> dict:
+        """Return cached results from watcher polls; never makes a Resy request."""
         monitors = [
             m for m in self.db.get_active_monitors()
             if getattr(m, "watch_group_id", None) == group_id
         ]
         if not monitors:
-            return []
+            return {"slots": [], "checked_at": None, "errors": []}
 
-        feed = []
-        with ResyClient(credentials) as client:
-            for monitor in monitors:
-                restaurant = self.db.get_restaurant(monitor.restaurant_id)
-                if not restaurant:
-                    continue
-                try:
-                    slots = client.find_slots(
-                        venue_id=restaurant.venue_id,
-                        party_size=monitor.party_size,
-                        date=monitor.target_date.strftime("%Y-%m-%d"),
-                    )
-                except Exception:
-                    continue
+        slots = []
+        checked = []
+        errors = []
+        for monitor in monitors:
+            cached = self._availability_cache.get(monitor.id)
+            if not cached:
+                continue
+            if cached.get("checked_at"):
+                checked.append(cached["checked_at"])
+            if cached.get("error"):
+                errors.append(cached["error"])
+            slots.extend(cached.get("slots") or [])
 
-                try:
-                    start_minutes = (
-                        datetime.strptime(monitor.time_start, "%H:%M").hour * 60
-                        + datetime.strptime(monitor.time_start, "%H:%M").minute
-                    ) if monitor.time_start else None
-                    end_minutes = (
-                        datetime.strptime(monitor.time_end, "%H:%M").hour * 60
-                        + datetime.strptime(monitor.time_end, "%H:%M").minute
-                    ) if monitor.time_end else None
-                except Exception:
-                    start_minutes = end_minutes = None
+        # Remove duplicate slot rows while preserving date/time/type.
+        unique = {}
+        for slot in slots:
+            key = (slot.get("date"), slot.get("time"), slot.get("type"))
+            unique[key] = slot
 
-                pref = TimePreference(
-                    time=monitor.preferred_time,
-                    table_type=monitor.table_type,
-                    window_minutes=monitor.time_window,
-                )
-                for slot in slots:
-                    slot_minutes = self._slot_minutes(slot)
-                    if slot_minutes is None:
-                        continue
-                    if start_minutes is not None and end_minutes is not None:
-                        in_range = start_minutes <= slot_minutes <= end_minutes
-                    else:
-                        in_range = pref.matches(slot)
-                    if not in_range or not pref.matches_table_type(slot):
-                        continue
-                    feed.append({
-                        "date": monitor.target_date.isoformat(),
-                        "time": str(slot.time_slot),
-                        "type": getattr(slot, "type", None) or getattr(slot, "table_type", None),
-                    })
-
-        feed.sort(key=lambda item: (item["date"], item["time"]))
-        return feed
+        feed = sorted(
+            unique.values(),
+            key=lambda item: (item.get("date") or "", item.get("time") or ""),
+        )
+        return {
+            "slots": feed,
+            "checked_at": max(checked) if checked else None,
+            "errors": errors,
+        }
 
     def check_watch_group_now(self, group_id: str) -> dict:
         """Synchronously check/book a newly-created watch before returning UI control."""
