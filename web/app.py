@@ -159,11 +159,15 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     async def app_login_page(request: Request):
         if APP_PASSWORD and _valid_session(request.cookies.get(SESSION_COOKIE_NAME)):
             return RedirectResponse("/", status_code=303)
-        return templates.TemplateResponse("login.html", {
-            "request": request,
-            "setup_required": not bool(APP_PASSWORD),
-            "bad_password": request.query_params.get("bad") == "1",
-        })
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={
+                "request": request,
+                "setup_required": not bool(APP_PASSWORD),
+                "bad_password": request.query_params.get("bad") == "1",
+            },
+        )
 
     @app.post("/login")
     async def app_login(password: str = Form(...)):
@@ -197,29 +201,37 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         recent = [r for r in reversed(reservations) if r.status not in {ReservationStatus.PENDING, ReservationStatus.IN_PROGRESS}][:8]
         creds = db.get_credentials()
         pref_map = {r.id: _parse_preferences(r.preferred_times) for r in reservations}
-        return templates.TemplateResponse("dashboard.html", common_context(
-            request,
-            "home",
-            upcoming=upcoming,
-            recent=recent,
-            restaurant_map=restaurant_map,
-            pref_map=pref_map,
-            has_credentials=bool(creds),
-            credential_email=creds.email if creds else None,
-            has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
-            now=now_local_naive(),
-        ))
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context=common_context(
+                request,
+                "home",
+                upcoming=upcoming,
+                recent=recent,
+                restaurant_map=restaurant_map,
+                pref_map=pref_map,
+                has_credentials=bool(creds),
+                credential_email=creds.email if creds else None,
+                has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
+                now=now_local_naive(),
+            ),
+        )
 
     @app.get("/new", response_class=HTMLResponse)
     async def new_snipe(request: Request):
         restaurants = db.get_restaurants()
-        return templates.TemplateResponse("new_snipe.html", common_context(
-            request,
-            "new",
-            restaurants=restaurants,
-            today=now_local_naive().date().isoformat(),
-            has_credentials=bool(db.get_credentials()),
-        ))
+        return templates.TemplateResponse(
+            request=request,
+            name="new_snipe.html",
+            context=common_context(
+                request,
+                "new",
+                restaurants=restaurants,
+                today=now_local_naive().date().isoformat(),
+                has_credentials=bool(db.get_credentials()),
+            ),
+        )
 
     @app.get("/api/venues/search")
     async def venue_search(q: str = ""):
@@ -316,14 +328,18 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     async def settings(request: Request):
         creds = db.get_credentials()
         restaurants = db.get_restaurants()
-        return templates.TemplateResponse("settings.html", common_context(
-            request,
-            "settings",
-            credentials=creds,
-            restaurants=restaurants,
-            data_dir=str(DATA_DIR),
-            has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
-        ))
+        return templates.TemplateResponse(
+            request=request,
+            name="settings.html",
+            context=common_context(
+                request,
+                "settings",
+                credentials=creds,
+                restaurants=restaurants,
+                data_dir=str(DATA_DIR),
+                has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
+            ),
+        )
 
     @app.post("/settings/resy-login")
     async def settings_resy_login(email: str = Form(...), password: str = Form(...)):
