@@ -127,6 +127,18 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                                 result_message="Cancelled legacy job after correcting Straker's release time",
                             )
 
+        # V3 migration: the Watch record is now the source of truth.
+        # Cancel any legacy scheduled snipe that is not paired with an active
+        # watch so an old hidden job can never book unexpectedly.
+        active_watches = db.get_active_monitors()
+        for reservation in db.get_pending_reservations():
+            if not any(_watch_matches_snipe(monitor, reservation) for monitor in active_watches):
+                db.update_reservation_status(
+                    reservation.id,
+                    ReservationStatus.CANCELLED,
+                    result_message="Cancelled legacy unpaired snipe during Watch migration",
+                )
+
         if not daemon.is_running():
             daemon.start()
         try:
