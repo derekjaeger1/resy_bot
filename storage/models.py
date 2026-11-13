@@ -57,6 +57,11 @@ class Restaurant(Base):
 
     id = Column(Integer, primary_key=True)
     venue_id = Column(Integer, unique=True, nullable=False)
+    # Provider-neutral identity. Existing rows default to Resy; venue_id remains
+    # for backward compatibility with the original Resy-only schema.
+    provider = Column(String(32), nullable=False, default="resy")
+    provider_venue_id = Column(String(255), nullable=True)
+    provider_slug = Column(String(255), nullable=True)
     name = Column(String(255), nullable=False)
     address = Column(String(500), nullable=True)
     city = Column(String(100), nullable=True)
@@ -88,7 +93,10 @@ class Restaurant(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Restaurant {self.name} (venue_id={self.venue_id})>"
+        return (
+            f"<Restaurant {self.name} "
+            f"({self.provider}:{self.provider_venue_id or self.venue_id})>"
+        )
 
 
 class ScheduledReservation(Base):
