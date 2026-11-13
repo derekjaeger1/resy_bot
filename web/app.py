@@ -98,6 +98,21 @@ def _clock_label(value: str) -> str:
     return datetime.strptime(value, "%H:%M").strftime("%-I:%M %p")
 
 
+def _time_key(value) -> str:
+    """Normalize Resy/history time formats to HH:MM for matching."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        if " " in raw:
+            raw = raw.split(" ")[-1]
+        if "T" in raw:
+            raw = raw.split("T")[-1]
+        return raw[:5]
+    except Exception:
+        return raw[:5]
+
+
 def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None) -> FastAPI:
     db = db or Database()
     daemon = daemon or SchedulerDaemon(db)
@@ -315,18 +330,13 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             if m.status not in {MonitorStatus.ACTIVE, MonitorStatus.SUCCESS}
         ][:12]
 
-        # Reservation history is the canonical record of everything this app
-        # successfully booked. Enrich upcoming rows with Resy's live state so
-        # cancellation controls reflect the actual account.
+        # The live Resy account is the source of truth for upcoming
+        # reservations. This intentionally includes reservations booked
+        # outside this app.
         history = db.get_history(limit=200)
         successful_history = [h for h in history if h.success and h.resy_token]
-        seen_tokens = set()
-        successful_history = [
-            h for h in successful_history
-            if not (h.resy_token in seen_tokens or seen_tokens.add(h.resy_token))
-        ]
 
-        live_reservations = {}
+        live_reservations = []
         live_resy_ok = False
         creds = db.get_credentials()
         if creds:
@@ -336,50 +346,62 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                     auth_token=creds.auth_token,
                     payment_method_id=creds.payment_method_id,
                 )) as client:
-                    live_reservations = {
-                        r.get("resy_token"): r
-                        for r in client.get_reservations()
-                        if r.get("resy_token")
-                    }
+                    live_reservations = client.get_reservations()
                     live_resy_ok = True
             except Exception:
-                live_reservations = {}
+                live_reservations = []
 
-        today = now_local_naive().date()
-        booked_reservations = []
-        for h in successful_history:
-            live = live_reservations.get(h.resy_token)
-            if h.cancelled_at:
-                status = "cancelled"
-            elif h.target_date < today:
-                status = "past"
-            elif live_resy_ok and not live:
-                status = "not_active"
-            else:
-                status = "active"
+        def _matching_history(live):
+            live_date = str(live.get("date") or "")
+            live_time = _time_key(live.get("time"))
+            live_venue = str(live.get("venue_id") or "")
+            live_party = int(live.get("party_size") or 0)
+            live_token = live.get("resy_token")
 
-            booked_reservations.append({
-                "history": h,
-                "status": status,
+            for h in successful_history:
+                if live_token and h.resy_token == live_token:
+                    return h
+                if (
+                    str(h.venue_id) == live_venue
+                    and h.target_date.isoformat() == live_date
+                    and int(h.party_size or 0) == live_party
+                    and _time_key(h.booked_time) == live_time
+                ):
+                    return h
+            return None
+
+        account_reservations = []
+        for live in live_reservations:
+            try:
+                parsed_date = datetime.strptime(str(live.get("date")), "%Y-%m-%d").date()
+            except Exception:
+                parsed_date = now_local_naive().date()
+
+            history_match = _matching_history(live)
+            account_reservations.append({
                 "live": live,
-                "can_cancel": bool(
-                    status == "active"
-                    and h.target_date >= today
-                    and (not live_resy_ok or (live and live.get("cancellation_allowed", False)))
-                ),
-                "cutoff": live.get("cancellation_cutoff") if live else None,
-                "table_type": live.get("table_type") if live else None,
+                "history": history_match,
+                "date_obj": parsed_date,
+                "time_label": clock(live.get("time")),
+                "booked_by_sniper": history_match is not None,
+                "can_cancel": bool(live.get("cancellation_allowed", False)),
             })
 
-        status_rank = {"active": 0, "not_active": 1, "cancelled": 2, "past": 3}
-        booked_reservations.sort(
+        account_reservations.sort(
             key=lambda item: (
-                status_rank.get(item["status"], 9),
-                item["history"].target_date.toordinal()
-                if item["status"] == "active"
-                else -item["history"].target_date.toordinal(),
+                item["date_obj"],
+                _time_key(item["live"].get("time")),
+                item["live"].get("venue_name") or "",
             )
         )
+
+        # Keep bot booking history only for cancelled/past items that are no
+        # longer present in the live upcoming Resy account.
+        live_tokens = {r.get("resy_token") for r in live_reservations if r.get("resy_token")}
+        booking_history = [
+            h for h in successful_history
+            if h.resy_token not in live_tokens
+        ][:20]
 
         grouped = {}
         for monitor in active_monitors:
@@ -432,7 +454,9 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "home",
                 watch_groups=watch_groups,
                 recent_monitors=recent_monitors,
-                booked_reservations=booked_reservations,
+                account_reservations=account_reservations,
+                booking_history=booking_history,
+                live_resy_ok=live_resy_ok,
                 orphan_snipes=orphan_snipes,
                 recent=recent,
                 restaurant_map=restaurant_map,
@@ -682,6 +706,79 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         daemon.cancel_job(reservation_id)
         db.delete_reservation(reservation_id)
         return _redirect("/", message="Removed.")
+
+    @app.post("/resy-reservations/{reservation_id}/cancel")
+    async def cancel_live_resy_reservation(reservation_id: str):
+        stored = db.get_credentials()
+        if not stored:
+            return _redirect("/", error="Reconnect your Resy account before cancelling.")
+
+        creds = ResyCredentials(
+            api_key=stored.api_key,
+            auth_token=stored.auth_token,
+            payment_method_id=stored.payment_method_id,
+        )
+
+        try:
+            with ResyClient(creds) as client:
+                current = client.get_reservations()
+                live = next(
+                    (
+                        r for r in current
+                        if str(r.get("reservation_id")) == str(reservation_id)
+                    ),
+                    None,
+                )
+                if not live:
+                    return _redirect(
+                        "/",
+                        error="That reservation is no longer active in your Resy account.",
+                    )
+
+                if not live.get("cancellation_allowed", False):
+                    cutoff = live.get("cancellation_cutoff")
+                    detail = f" Cancellation cutoff: {cutoff}." if cutoff else ""
+                    return _redirect(
+                        "/",
+                        error=f"Resy is not allowing cancellation for this reservation right now.{detail}",
+                    )
+
+                token = live.get("resy_token")
+                if not token:
+                    return _redirect("/", error="Resy did not provide a cancellation token.")
+
+                client.cancel_reservation(token)
+
+            # Preserve bot history and mark matching bot-created booking
+            # cancelled when this live reservation originated here.
+            live_date = str(live.get("date") or "")
+            live_time = _time_key(live.get("time"))
+            for h in db.get_history(limit=200):
+                if not h.success:
+                    continue
+                if (
+                    h.resy_token == token
+                    or (
+                        str(h.venue_id) == str(live.get("venue_id") or "")
+                        and h.target_date.isoformat() == live_date
+                        and int(h.party_size or 0) == int(live.get("party_size") or 0)
+                        and _time_key(h.booked_time) == live_time
+                    )
+                ):
+                    db.mark_history_cancelled(
+                        h.id,
+                        message="Cancelled directly from Reservation Sniper",
+                    )
+
+            return _redirect(
+                "/",
+                message=(
+                    f"Cancelled — {live.get('venue_name', 'reservation')} "
+                    f"on {live.get('date')} at {clock(live.get('time'))}."
+                ),
+            )
+        except Exception as exc:
+            return _redirect("/", error=f"Resy cancellation failed: {str(exc)}")
 
     @app.post("/bookings/{history_id}/cancel")
     async def cancel_booked_reservation(history_id: int):
