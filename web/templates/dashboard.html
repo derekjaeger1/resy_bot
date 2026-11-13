@@ -58,8 +58,18 @@
       {% if group.last_checked %}
         <div class="last-check">Last checked {{ group.last_checked.strftime('%-I:%M %p') }} ET · {{ group.checks }} total checks</div>
       {% else %}
-        <div class="last-check">Initial availability check queued now</div>
+        <div class="last-check">Checking current availability now</div>
       {% endif %}
+
+      <div class="live-feed" data-live-group="{{ group.id }}">
+        <div class="live-feed-head">
+          <span>Live availability</span>
+          <span class="live-feed-time">Loading…</span>
+        </div>
+        <div class="live-feed-slots">
+          <span class="live-empty">Checking Resy…</span>
+        </div>
+      </div>
 
       <form method="post" action="/watch-groups/{{ group.id }}/cancel">
         <button class="text-button" type="submit">Stop watching</button>
