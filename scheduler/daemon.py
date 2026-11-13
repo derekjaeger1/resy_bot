@@ -424,6 +424,106 @@ class SchedulerDaemon:
             logger.error(f"Failed to book cancellation slot: {e}")
             # Don't mark as failed - slot might have been taken, keep monitoring
 
+    def get_watch_group_availability(self, group_id: str) -> list[dict]:
+        """Return a live feed of currently available slots for an active watch group."""
+        credentials = self._get_credentials()
+        if not credentials:
+            return []
+
+        monitors = [
+            m for m in self.db.get_active_monitors()
+            if getattr(m, "watch_group_id", None) == group_id
+        ]
+        if not monitors:
+            return []
+
+        feed = []
+        with ResyClient(credentials) as client:
+            for monitor in monitors:
+                restaurant = self.db.get_restaurant(monitor.restaurant_id)
+                if not restaurant:
+                    continue
+                try:
+                    slots = client.find_slots(
+                        venue_id=restaurant.venue_id,
+                        party_size=monitor.party_size,
+                        date=monitor.target_date.strftime("%Y-%m-%d"),
+                    )
+                except Exception:
+                    continue
+
+                try:
+                    start_minutes = (
+                        datetime.strptime(monitor.time_start, "%H:%M").hour * 60
+                        + datetime.strptime(monitor.time_start, "%H:%M").minute
+                    ) if monitor.time_start else None
+                    end_minutes = (
+                        datetime.strptime(monitor.time_end, "%H:%M").hour * 60
+                        + datetime.strptime(monitor.time_end, "%H:%M").minute
+                    ) if monitor.time_end else None
+                except Exception:
+                    start_minutes = end_minutes = None
+
+                pref = TimePreference(
+                    time=monitor.preferred_time,
+                    table_type=monitor.table_type,
+                    window_minutes=monitor.time_window,
+                )
+                for slot in slots:
+                    slot_minutes = self._slot_minutes(slot)
+                    if slot_minutes is None:
+                        continue
+                    if start_minutes is not None and end_minutes is not None:
+                        in_range = start_minutes <= slot_minutes <= end_minutes
+                    else:
+                        in_range = pref.matches(slot)
+                    if not in_range or not pref.matches_table_type(slot):
+                        continue
+                    feed.append({
+                        "date": monitor.target_date.isoformat(),
+                        "time": str(slot.time_slot),
+                        "type": getattr(slot, "type", None) or getattr(slot, "table_type", None),
+                    })
+
+        feed.sort(key=lambda item: (item["date"], item["time"]))
+        return feed
+
+    def check_watch_group_now(self, group_id: str) -> dict:
+        """Synchronously check/book a newly-created watch before returning UI control."""
+        credentials = self._get_credentials()
+        if not credentials:
+            return {"status": "error", "message": "Resy is not connected."}
+
+        monitors = [
+            m for m in self.db.get_active_monitors()
+            if getattr(m, "watch_group_id", None) == group_id
+        ]
+        monitors.sort(key=lambda m: m.target_date)
+        if not monitors:
+            return {"status": "error", "message": "Watch could not be loaded."}
+
+        with ResyClient(credentials) as client:
+            for monitor in monitors:
+                self._check_monitor(client, monitor)
+
+                # Reload because _check_monitor may have booked this row and
+                # cancelled the rest of the group.
+                refreshed = next(
+                    (m for m in self.db.get_monitors() if m.id == monitor.id),
+                    None,
+                )
+                if refreshed and refreshed.status == MonitorStatus.SUCCESS:
+                    return {
+                        "status": "booked",
+                        "date": refreshed.target_date.isoformat(),
+                        "time": refreshed.booked_time,
+                    }
+
+        return {
+            "status": "watching",
+            "availability": self.get_watch_group_availability(group_id),
+        }
+
     def poll_monitors_now(self) -> None:
         """Queue an immediate monitor check without blocking the web request."""
         if not self._running:
