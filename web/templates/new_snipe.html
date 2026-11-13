@@ -47,7 +47,7 @@
     </div>
   </details>
 
-  <div class="safe" style="margin-top:16px">✓ Strict mode: only a table inside your selected time window can be booked.</div>
+  <div class="safe" style="margin-top:16px">✓ Only a table inside your selected time window can be booked.<br><span style="opacity:.8">If the original drop already happened, the app will automatically watch for cancellations/openings instead.</span></div>
   <button class="cta" type="submit" {% if not has_credentials %}disabled style="opacity:.45"{% endif %}>Arm Snipe</button>
 </form>
 {% endblock %}
