@@ -109,8 +109,10 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         # Recalculate any still-pending legacy drop job so the old 9 AM value
         # cannot fire later.
         for restaurant in db.get_restaurants():
-            if "straker" in restaurant.name.lower() and restaurant.days_in_advance == 14 and restaurant.release_time == dt_time(9, 0):
-                corrected = db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
+            if "straker" in restaurant.name.lower() and restaurant.days_in_advance == 14:
+                corrected = restaurant
+                if restaurant.release_time != dt_time(0, 0):
+                    corrected = db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
                 if corrected:
                     for reservation in db.get_pending_reservations():
                         if reservation.restaurant_id != corrected.id:
