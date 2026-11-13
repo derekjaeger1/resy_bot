@@ -309,6 +309,28 @@ class SchedulerDaemon:
                 resy_token=resy_token,
             )
 
+            # A watch and a high-speed drop snipe can be paired for the same
+            # exact table. If the watch books first, cancel the future snipe
+            # so we can never double-book the user.
+            for reservation in self.db.get_pending_reservations():
+                if (
+                    reservation.restaurant_id == monitor.restaurant_id
+                    and reservation.target_date == monitor.target_date
+                    and reservation.party_size == monitor.party_size
+                ):
+                    try:
+                        import json
+                        prefs = json.loads(reservation.preferred_times or "[]")
+                    except Exception:
+                        prefs = []
+                    if prefs and prefs[0].get("time") == monitor.preferred_time:
+                        self.db.update_reservation_status(
+                            reservation.id,
+                            ReservationStatus.CANCELLED,
+                            result_message="Cancelled automatically because the watch booked first",
+                        )
+                        self.cancel_job(reservation.id)
+
             # Add to history
             self.db.add_history(
                 restaurant_name=restaurant.name,
@@ -328,6 +350,19 @@ class SchedulerDaemon:
         except Exception as e:
             logger.error(f"Failed to book cancellation slot: {e}")
             # Don't mark as failed - slot might have been taken, keep monitoring
+
+    def poll_monitors_now(self) -> None:
+        """Queue an immediate monitor check without blocking the web request."""
+        if not self._running:
+            return
+        job_id = f"monitor_now_{int(datetime.now().timestamp() * 1000)}"
+        self.scheduler.add_job(
+            self._poll_monitors,
+            trigger=DateTrigger(run_date=datetime.now() + timedelta(seconds=1)),
+            id=job_id,
+            name="Immediate cancellation watch check",
+            replace_existing=False,
+        )
 
     def start_monitor_polling(self) -> None:
         """Start the periodic monitor polling job."""
