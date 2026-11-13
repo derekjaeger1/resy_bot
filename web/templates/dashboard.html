@@ -42,9 +42,9 @@
       <div class="watch-exact">Exact time only</div>
 
       {% if boost %}
-        <div class="boost-row">⚡ Drop boost armed for {{ boost.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
+        <div class="boost-row">⚡ Verified drop boost armed for {{ boost.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
       {% else %}
-        <div class="boost-row neutral">↻ Checking for new or cancelled tables</div>
+        <div class="boost-row neutral">↻ Continuous watch active · no verified drop time armed</div>
       {% endif %}
 
       {% if monitor.last_checked %}
