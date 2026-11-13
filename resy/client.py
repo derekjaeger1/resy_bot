@@ -413,12 +413,15 @@ class ResyClient:
             venue = res.get("venue", {})
             config = res.get("config", {})
 
-            # Extract venue name from share.generic_message
-            # Format: "Please RSVP for Ozakaya on February 8 at 7:00PM"
-            venue_name = "Unknown"
+            # Prefer structured venue data; fall back to the share message.
+            venue_name = (
+                venue.get("name")
+                or venue.get("venue_name")
+                or "Unknown"
+            )
             share = res.get("share", {})
             generic_msg = share.get("generic_message", "")
-            if generic_msg:
+            if venue_name == "Unknown" and generic_msg:
                 match = re.search(r"for (.+?) on ", generic_msg)
                 if match:
                     venue_name = match.group(1)
@@ -443,6 +446,7 @@ class ResyClient:
                 "time": res.get("time_slot"),
                 "party_size": res.get("num_seats"),
                 "table_type": config.get("type", ""),
+                "neighborhood": venue.get("neighborhood") or venue.get("location", {}).get("name", ""),
                 "reservation_id": res.get("reservation_id"),
                 "cancellation_allowed": cancellation.get("allowed", False),
                 "cancellation_cutoff": cutoff,
