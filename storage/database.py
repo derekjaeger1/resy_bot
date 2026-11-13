@@ -48,6 +48,10 @@ class Database:
                 "time_start": "VARCHAR(10)",
                 "time_end": "VARCHAR(10)",
             },
+            "reservation_history": {
+                "cancelled_at": "DATETIME",
+                "cancellation_message": "TEXT",
+            },
         }
         with self.engine.begin() as conn:
             for table, columns in migrations.items():
@@ -347,6 +351,35 @@ class Database:
                 .limit(limit)
                 .all()
             )
+
+    def get_history_by_id(self, history_id: int) -> Optional[ReservationHistory]:
+        """Get one booking-history row."""
+        with self.get_session() as session:
+            return (
+                session.query(ReservationHistory)
+                .filter(ReservationHistory.id == history_id)
+                .first()
+            )
+
+    def mark_history_cancelled(
+        self,
+        history_id: int,
+        message: Optional[str] = None,
+    ) -> Optional[ReservationHistory]:
+        """Record that a successfully booked Resy reservation was cancelled."""
+        with self.get_session() as session:
+            history = (
+                session.query(ReservationHistory)
+                .filter(ReservationHistory.id == history_id)
+                .first()
+            )
+            if not history:
+                return None
+            history.cancelled_at = datetime.now()
+            history.cancellation_message = message or "Cancelled in Reservation Sniper"
+            session.commit()
+            session.refresh(history)
+            return history
 
     def calculate_snipe_time(
         self,
