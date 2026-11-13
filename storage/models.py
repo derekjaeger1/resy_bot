@@ -71,6 +71,12 @@ class Restaurant(Base):
     days_in_advance = Column(Integer, default=14)  # How many days out reservations open
     release_day_of_week = Column(Integer, nullable=True)  # 0=Monday, 6=Sunday (for weekly)
 
+    # Release intelligence. A drop sniper is only allowed when verified=True.
+    release_verified = Column(Boolean, nullable=False, default=False)
+    release_source = Column(String(500), nullable=True)
+    release_note = Column(Text, nullable=True)
+    url_slug = Column(String(255), nullable=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -162,6 +168,12 @@ class MonitoredReservation(Base):
     preferred_time = Column(String(10), nullable=False, default="19:00")  # HH:MM format
     time_window = Column(Integer, nullable=False, default=120)  # Minutes before/after preferred time
     table_type = Column(String(100), nullable=True)  # Optional table type filter
+
+    # One user watch can span multiple dates. Each date gets its own row for
+    # efficient Resy polling, but these fields keep the rows grouped.
+    watch_group_id = Column(String(64), nullable=True, index=True)
+    time_start = Column(String(10), nullable=True)
+    time_end = Column(String(10), nullable=True)
 
     # Status
     status = Column(
