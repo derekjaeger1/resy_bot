@@ -77,3 +77,51 @@ document.addEventListener('DOMContentLoaded',()=>{
   setupVenueSearch();
   setupRanges();
 });
+
+function setupLiveAvailability(){
+  const feeds=[...document.querySelectorAll('[data-live-group]')];
+  if(!feeds.length)return;
+
+  async function refresh(feed){
+    const group=feed.dataset.liveGroup;
+    const slotsBox=feed.querySelector('.live-feed-slots');
+    const timeBox=feed.querySelector('.live-feed-time');
+    try{
+      const r=await fetch('/api/watch-groups/'+encodeURIComponent(group)+'/availability',{cache:'no-store'});
+      const data=await r.json();
+
+      if(data.status==='inactive'){
+        timeBox.textContent='Completed';
+        slotsBox.innerHTML='<span class="live-empty">Watch completed or stopped.</span>';
+        return;
+      }
+
+      timeBox.textContent=data.checked_at ? 'Updated '+data.checked_at : 'Updated now';
+      slotsBox.innerHTML='';
+
+      if(!data.slots||!data.slots.length){
+        slotsBox.innerHTML='<span class="live-empty">No matching tables right now</span>';
+        return;
+      }
+
+      data.slots.forEach(slot=>{
+        const pill=document.createElement('span');
+        pill.className='live-slot';
+        const date=new Date(slot.date+'T12:00:00');
+        const dateLabel=date.toLocaleDateString([], {month:'short',day:'numeric'});
+        pill.textContent=dateLabel+' · '+slot.label;
+        slotsBox.appendChild(pill);
+      });
+    }catch(e){
+      timeBox.textContent='Refresh failed';
+      slotsBox.innerHTML='<span class="live-empty">Could not refresh live availability</span>';
+    }
+  }
+
+  feeds.forEach(feed=>{
+    refresh(feed);
+    setInterval(()=>refresh(feed),30000);
+  });
+}
+
+document.addEventListener('DOMContentLoaded',setupLiveAvailability);
