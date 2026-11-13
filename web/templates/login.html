@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0b0c10"><link rel="stylesheet" href="/static/app.css"><title>Reservation Sniper</title></head>
+<body><div class="login-wrap"><div class="login-card">
+  <div class="brand"><i>◎</i>Reservation Sniper</div>
+  <h1>Your tables. On time.</h1>
+  <p>Private access to your reservation sniper.</p>
+  {% if setup_required %}
+    <div class="flash err">App security is not configured yet. Set <strong>APP_PASSWORD</strong> in Railway, then reload.</div>
+  {% else %}
+    {% if bad_password %}<div class="flash err">Wrong password.</div>{% endif %}
+    <form method="post" action="/login">
+      <label class="label">App password</label>
+      <input class="input" type="password" name="password" autocomplete="current-password" required autofocus>
+      <button class="cta" type="submit">Unlock</button>
+    </form>
+  {% endif %}
+</div></div></body></html>

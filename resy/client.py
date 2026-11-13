@@ -389,8 +389,8 @@ class ResyClient:
                             best_score = score
                             best_slot = slot
 
-        # Return best match, or first slot if nothing matched within windows
-        return best_slot if best_slot else slots[0]
+        # Safety: never return a slot outside the user's requested windows.
+        return best_slot
 
     def get_reservations(self) -> list[dict]:
         """
