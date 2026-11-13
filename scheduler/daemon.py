@@ -264,6 +264,22 @@ class SchedulerDaemon:
                 except Exception as e:
                     logger.error(f"Error checking monitor {monitor.id}: {e}")
 
+    @staticmethod
+    def _slot_minutes(slot) -> int | None:
+        """Parse common Resy slot timestamp formats into minutes after midnight."""
+        raw = str(slot.time_slot).strip()
+        try:
+            if " " in raw and "-" in raw.split(" ")[0]:
+                raw = raw.split(" ", 1)[1]
+            upper = raw.upper()
+            if upper.endswith(" AM") or upper.endswith(" PM"):
+                parsed = datetime.strptime(raw, "%I:%M %p")
+                return parsed.hour * 60 + parsed.minute
+            parts = raw.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        except Exception:
+            return None
+
     def _check_monitor(self, client: ResyClient, monitor) -> None:
         """Check a single monitor for availability and book if found."""
         # Get restaurant info
@@ -291,24 +307,50 @@ class SchedulerDaemon:
             logger.debug(f"No slots for {restaurant.name} on {date_str}")
             return
 
-        # Create time preference for matching
+        # Match against the user's exact stored range when available.
+        # Legacy rows fall back to center ± window behavior.
         time_pref = TimePreference(
             time=monitor.preferred_time,
             table_type=monitor.table_type,
             window_minutes=monitor.time_window,
         )
 
-        # Find best matching slot
-        matching_slots = [s for s in slots if time_pref.matches(s)]
+        if monitor.time_start and monitor.time_end:
+            try:
+                start_dt = datetime.strptime(monitor.time_start, "%H:%M")
+                end_dt = datetime.strptime(monitor.time_end, "%H:%M")
+                start_minutes = start_dt.hour * 60 + start_dt.minute
+                end_minutes = end_dt.hour * 60 + end_dt.minute
+            except Exception:
+                start_minutes = None
+                end_minutes = None
+
+            matching_slots = []
+            if start_minutes is not None and end_minutes is not None:
+                for slot in slots:
+                    slot_minutes = self._slot_minutes(slot)
+                    if slot_minutes is None:
+                        continue
+                    if (
+                        start_minutes <= slot_minutes <= end_minutes
+                        and time_pref.matches_table_type(slot)
+                    ):
+                        matching_slots.append(slot)
+            else:
+                matching_slots = [s for s in slots if time_pref.matches(s)]
+        else:
+            matching_slots = [s for s in slots if time_pref.matches(s)]
+
         if not matching_slots:
             logger.debug(
-                f"Found {len(slots)} slots for {restaurant.name} but none match "
-                f"preferences (time={monitor.preferred_time}, window=±{monitor.time_window}min)"
+                f"Found {len(slots)} slots for {restaurant.name} but none match watch "
+                f"(range={monitor.time_start or monitor.preferred_time}-"
+                f"{monitor.time_end or monitor.preferred_time})"
             )
             return
 
-        # Sort by time difference (closest to preferred time first)
-        matching_slots.sort(key=lambda s: time_pref.time_difference_minutes(s) or 999)
+        # First qualifying table wins. Prefer the earliest slot in the allowed range.
+        matching_slots.sort(key=lambda s: self._slot_minutes(s) or 9999)
         best_slot = matching_slots[0]
 
         logger.info(
@@ -329,27 +371,32 @@ class SchedulerDaemon:
                 resy_token=resy_token,
             )
 
-            # A watch and a high-speed drop snipe can be paired for the same
-            # exact table. If the watch books first, cancel the future snipe
-            # so we can never double-book the user.
+            # First qualifying table wins across the entire user watch.
+            # If this row belongs to a multi-date group, cancel every sibling
+            # monitor and every paired future drop attempt immediately.
+            group_rows = [monitor]
+            if getattr(monitor, "watch_group_id", None):
+                group_rows = [
+                    m for m in self.db.get_monitors()
+                    if m.watch_group_id == monitor.watch_group_id
+                ]
+                for sibling in group_rows:
+                    if sibling.id != monitor.id and sibling.status == MonitorStatus.ACTIVE:
+                        self.db.cancel_monitor(sibling.id)
+
+            group_dates = {m.target_date for m in group_rows}
             for reservation in self.db.get_pending_reservations():
                 if (
                     reservation.restaurant_id == monitor.restaurant_id
-                    and reservation.target_date == monitor.target_date
                     and reservation.party_size == monitor.party_size
+                    and reservation.target_date in group_dates
                 ):
-                    try:
-                        import json
-                        prefs = json.loads(reservation.preferred_times or "[]")
-                    except Exception:
-                        prefs = []
-                    if prefs and prefs[0].get("time") == monitor.preferred_time:
-                        self.db.update_reservation_status(
-                            reservation.id,
-                            ReservationStatus.CANCELLED,
-                            result_message="Cancelled automatically because the watch booked first",
-                        )
-                        self.cancel_job(reservation.id)
+                    self.db.update_reservation_status(
+                        reservation.id,
+                        ReservationStatus.CANCELLED,
+                        result_message="Cancelled automatically because this watch already booked",
+                    )
+                    self.cancel_job(reservation.id)
 
             # Add to history
             self.db.add_history(
