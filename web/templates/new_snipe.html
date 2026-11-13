@@ -1,9 +1,9 @@
 {% extends "base.html" %}
-{% block title %}Watch a Table{% endblock %}
+{% block title %}Find & Watch{% endblock %}
 {% block content %}
 <div class="page-head">
   <h1>Find a table</h1>
-  <p>Choose the exact reservation you want. If it appears, we’ll try to book it automatically.</p>
+  <p>Search now, then keep watching automatically if nothing is open.</p>
 </div>
 
 {% if not has_credentials %}
@@ -20,69 +20,75 @@
       </div>
       <input id="venue-id" type="hidden" name="venue_id" required>
       <input id="restaurant-name" type="hidden" name="restaurant_name" required>
+      <input id="venue-slug" type="hidden" name="venue_slug">
       <div id="venue-results" class="search-results"></div>
       <div id="venue-picked" class="picked"></div>
 
       {% if restaurants %}
       <div class="saved-row">
-        {% for r in restaurants[:6] %}
-          <button type="button" class="saved-pill" data-saved-venue data-venue-id="{{ r.venue_id }}" data-venue-name="{{ r.name }}">{{ r.name }}</button>
+        {% for r in restaurants[:8] %}
+          <button
+            type="button"
+            class="saved-pill"
+            data-saved-venue
+            data-venue-id="{{ r.venue_id }}"
+            data-venue-name="{{ r.name }}"
+            data-venue-slug="{{ r.url_slug or '' }}"
+          >{{ r.name }}</button>
         {% endfor %}
       </div>
       {% endif %}
     </div>
 
+    <div class="range-label">DATES</div>
     <div class="booking-controls">
       <label class="control-box">
-        <span>Date</span>
-        <input type="date" name="target_date" min="{{ today }}" required>
+        <span>From</span>
+        <input id="date-start" type="date" name="date_start" min="{{ today }}" required>
       </label>
       <label class="control-box">
-        <span>Guests</span>
-        <select name="party_size">
-          {% for n in range(1,13) %}
-          <option value="{{ n }}" {% if n==2 %}selected{% endif %}>{{ n }}</option>
-          {% endfor %}
-        </select>
+        <span>To</span>
+        <input id="date-end" type="date" name="date_end" min="{{ today }}" required>
       </label>
     </div>
-  </section>
+    <div class="range-hint">One night or up to 14 consecutive dates.</div>
 
-  <section class="time-section">
-    <div class="time-heading">
-      <div>
-        <h2>Choose an exact time</h2>
-        <p>We will not book a different time.</p>
-      </div>
-      <div id="selected-time-label" class="selected-time-label">7:30 PM</div>
+    <div class="range-label">TIME WINDOW</div>
+    <div class="booking-controls">
+      <label class="control-box">
+        <span>From</span>
+        <input id="time-start" type="time" name="time_start" step="900" value="18:00" required>
+      </label>
+      <label class="control-box">
+        <span>To</span>
+        <input id="time-end" type="time" name="time_end" step="900" value="21:00" required>
+      </label>
     </div>
 
-    <input type="hidden" id="preferred-time" name="preferred_time" value="19:30" required>
-
-    <div class="time-scroller" id="time-scroller">
-      {% for slot in time_slots %}
-      <button
-        type="button"
-        class="time-brick {% if slot.value=='19:30' %}selected{% endif %}"
-        data-time-value="{{ slot.value }}"
-        data-time-label="{{ slot.label }}"
-      >{{ slot.label }}</button>
-      {% endfor %}
+    <div class="quick-times">
+      <button type="button" class="quick-time" data-range-start="17:00" data-range-end="19:00">5–7 PM</button>
+      <button type="button" class="quick-time" data-range-start="18:00" data-range-end="21:00">6–9 PM</button>
+      <button type="button" class="quick-time" data-range-start="19:00" data-range-end="22:00">7–10 PM</button>
+      <button type="button" class="quick-time" data-range-start="20:00" data-range-end="23:00">8–11 PM</button>
     </div>
 
-    <details class="custom-time">
-      <summary>Choose another exact time</summary>
-      <input id="custom-time-input" class="input" type="time" step="900">
-    </details>
+    <div class="field party-field">
+      <label class="label">Guests</label>
+      <select class="select" name="party_size">
+        {% for n in range(1,13) %}
+        <option value="{{ n }}" {% if n==2 %}selected{% endif %}>{{ n }} guest{{ '' if n==1 else 's' }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </section>
 
   <div class="auto-book-note">
-    <strong>Automatic booking</strong>
-    <span>We watch this exact slot for new inventory or cancellations. If its official release is still ahead and we know the restaurant’s drop rule, we also arm a high-speed drop attempt.</span>
+    <strong>Searches immediately</strong>
+    <span>If any table is already open inside your selected dates and time window, the app will try to book it right away. If not, it keeps watching automatically. Verified restaurant drops are armed automatically too.</span>
   </div>
 
   <button class="cta watch-cta" type="submit" {% if not has_credentials %}disabled{% endif %}>
-    Watch this time
+    Find & Watch
   </button>
 </form>
 {% endblock %}
