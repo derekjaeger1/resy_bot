@@ -311,7 +311,62 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         monitors = db.get_monitors()
         active_monitors = [m for m in monitors if m.status == MonitorStatus.ACTIVE]
         recent_monitors = [m for m in monitors if m.status != MonitorStatus.ACTIVE][:12]
-        recent_bookings = [m for m in monitors if m.status == MonitorStatus.SUCCESS][:3]
+
+        # Reservation history is the canonical record of everything this app
+        # successfully booked. Enrich upcoming rows with Resy's live state so
+        # cancellation controls reflect the actual account.
+        history = db.get_history(limit=200)
+        successful_history = [h for h in history if h.success and h.resy_token]
+        seen_tokens = set()
+        successful_history = [
+            h for h in successful_history
+            if not (h.resy_token in seen_tokens or seen_tokens.add(h.resy_token))
+        ]
+
+        live_reservations = {}
+        live_resy_ok = False
+        creds = db.get_credentials()
+        if creds:
+            try:
+                with ResyClient(ResyCredentials(
+                    api_key=creds.api_key,
+                    auth_token=creds.auth_token,
+                    payment_method_id=creds.payment_method_id,
+                )) as client:
+                    live_reservations = {
+                        r.get("resy_token"): r
+                        for r in client.get_reservations()
+                        if r.get("resy_token")
+                    }
+                    live_resy_ok = True
+            except Exception:
+                live_reservations = {}
+
+        today = now_local_naive().date()
+        booked_reservations = []
+        for h in successful_history:
+            live = live_reservations.get(h.resy_token)
+            if h.cancelled_at:
+                status = "cancelled"
+            elif h.target_date < today:
+                status = "past"
+            elif live_resy_ok and not live:
+                status = "not_active"
+            else:
+                status = "active"
+
+            booked_reservations.append({
+                "history": h,
+                "status": status,
+                "live": live,
+                "can_cancel": bool(
+                    status == "active"
+                    and h.target_date >= today
+                    and (not live_resy_ok or (live and live.get("cancellation_allowed", False)))
+                ),
+                "cutoff": live.get("cancellation_cutoff") if live else None,
+                "table_type": live.get("table_type") if live else None,
+            })
 
         grouped = {}
         for monitor in active_monitors:
@@ -356,7 +411,6 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         watch_groups.sort(key=lambda g: (g["date_start"], g["restaurant"].name if g["restaurant"] else ""))
         orphan_snipes = [r for r in upcoming if r.id not in paired_snipe_ids]
 
-        creds = db.get_credentials()
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
@@ -365,7 +419,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "home",
                 watch_groups=watch_groups,
                 recent_monitors=recent_monitors,
-                recent_bookings=recent_bookings,
+                booked_reservations=booked_reservations,
                 orphan_snipes=orphan_snipes,
                 recent=recent,
                 restaurant_map=restaurant_map,
@@ -615,6 +669,62 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         daemon.cancel_job(reservation_id)
         db.delete_reservation(reservation_id)
         return _redirect("/", message="Removed.")
+
+    @app.post("/bookings/{history_id}/cancel")
+    async def cancel_booked_reservation(history_id: int):
+        history = db.get_history_by_id(history_id)
+        if not history or not history.success or not history.resy_token:
+            return _redirect("/", error="That booking could not be found.")
+        if history.cancelled_at:
+            return _redirect("/", message=f"{history.restaurant_name} is already marked cancelled.")
+
+        stored = db.get_credentials()
+        if not stored:
+            return _redirect("/", error="Reconnect your Resy account before cancelling.")
+
+        creds = ResyCredentials(
+            api_key=stored.api_key,
+            auth_token=stored.auth_token,
+            payment_method_id=stored.payment_method_id,
+        )
+        try:
+            with ResyClient(creds) as client:
+                current = client.get_reservations()
+                live = next(
+                    (r for r in current if r.get("resy_token") == history.resy_token),
+                    None,
+                )
+                if not live:
+                    return _redirect(
+                        "/",
+                        error=(
+                            f"{history.restaurant_name} is not currently listed as an active "
+                            "upcoming reservation in Resy. It may already be cancelled or changed."
+                        ),
+                    )
+                if not live.get("cancellation_allowed", False):
+                    cutoff = live.get("cancellation_cutoff")
+                    detail = f" Cancellation cutoff: {cutoff}." if cutoff else ""
+                    return _redirect(
+                        "/",
+                        error=f"Resy is not allowing cancellation for this reservation right now.{detail}",
+                    )
+
+                client.cancel_reservation(history.resy_token)
+
+            db.mark_history_cancelled(
+                history_id,
+                message="Cancelled directly from Reservation Sniper",
+            )
+            return _redirect(
+                "/",
+                message=f"Cancelled — {history.restaurant_name} on {history.target_date.strftime('%b %-d')}.",
+            )
+        except Exception as exc:
+            return _redirect(
+                "/",
+                error=f"Resy cancellation failed: {str(exc)}",
+            )
 
     @app.post("/watch-groups/{group_id}/cancel")
     async def cancel_watch_group(group_id: str):
