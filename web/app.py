@@ -7,7 +7,7 @@ import hmac
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, time as dt_time
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -29,7 +29,7 @@ from resy.client import AuthenticationError, ResyClient, login as resy_login, se
 from resy.models import ResyCredentials
 from scheduler.daemon import SchedulerDaemon
 from storage.database import Database
-from storage.models import ReleasePattern, ReservationStatus
+from storage.models import ReleasePattern, ReservationStatus, MonitorStatus
 
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -83,6 +83,12 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        # One-time cleanup of an old V2 default we previously saved for
+        # Straker's. Resy's current published rule is two weeks at midnight.
+        for restaurant in db.get_restaurants():
+            if "straker" in restaurant.name.lower() and restaurant.days_in_advance == 14 and restaurant.release_time == dt_time(9, 0):
+                db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
+
         if not daemon.is_running():
             daemon.start()
         try:
@@ -209,6 +215,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "home",
                 upcoming=upcoming,
                 recent=recent,
+                active_monitors=active_monitors,
+                recent_monitors=recent_monitors,
                 restaurant_map=restaurant_map,
                 pref_map=pref_map,
                 has_credentials=bool(creds),
@@ -284,10 +292,24 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             )
 
         snipe_at = db.calculate_snipe_time(restaurant, target)
+        if target < now_local_naive().date():
+            return _redirect("/new", error="That reservation date has already passed.")
+
         if snipe_at <= now_local_naive():
+            monitor = db.add_monitor(
+                restaurant_id=restaurant.id,
+                target_date=target,
+                party_size=party_size,
+                preferred_time=preferred_time,
+                time_window=window_minutes,
+                table_type=table_type.strip() or None,
+            )
             return _redirect(
-                "/new",
-                error=f"This drop already passed ({_fmt_fire(snipe_at)} ET). Check the restaurant's release rule.",
+                "/",
+                message=(
+                    f"The initial drop already happened, so I'm watching {restaurant.name} "
+                    f"for cancellations/openings instead. I'll only book inside your selected time window."
+                ),
             )
 
         preference = {
@@ -323,6 +345,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         daemon.cancel_job(reservation_id)
         db.delete_reservation(reservation_id)
         return _redirect("/", message="Removed.")
+
+    @app.post("/monitors/{monitor_id}/cancel")
+    async def cancel_monitor(monitor_id: int):
+        db.cancel_monitor(monitor_id)
+        return _redirect("/", message="Cancellation watch stopped.")
 
     @app.get("/settings", response_class=HTMLResponse)
     async def settings(request: Request):
