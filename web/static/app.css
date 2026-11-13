@@ -244,3 +244,65 @@ summary{font-weight:700;cursor:pointer}
 .compact-empty{padding:20px 16px}
 .compact-empty h3{font-size:15px;margin:0 0 3px}
 .compact-empty p{font-size:12px}
+
+.reservation-section-title{align-items:flex-end}
+.reservation-section-title>div{display:flex;flex-direction:column;gap:3px}
+.reservation-section-title .eyebrow{font-size:10px}
+.reservation-section-title h2{font-size:22px;letter-spacing:-.035em}
+.reservation-count{
+  display:grid;place-items:center;min-width:30px;height:30px;padding:0 9px;border-radius:999px;
+  background:#171717;color:#fff;font-size:12px;font-weight:900
+}
+.reservation-wallet{display:flex;flex-direction:column;gap:11px}
+.reservation-ticket{
+  display:grid;grid-template-columns:64px 1fr;gap:14px;background:#fff;border:1px solid #e4e0d8;
+  border-radius:22px;padding:15px;box-shadow:0 10px 28px rgba(55,45,35,.055)
+}
+.reservation-date-tile{
+  align-self:start;background:#f3f0eb;border-radius:16px;min-height:78px;padding:9px 5px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1
+}
+.reservation-month{font-size:9px;letter-spacing:.11em;font-weight:900;color:#e55d54}
+.reservation-date-tile strong{font-size:28px;letter-spacing:-.06em;margin:5px 0 4px}
+.reservation-day{font-size:10px;color:#8e8981;font-weight:800}
+.reservation-ticket-body{min-width:0}
+.reservation-ticket-top{display:flex;gap:10px;justify-content:space-between;align-items:flex-start}
+.reservation-ticket-copy{min-width:0}
+.reservation-ticket h3{
+  margin:0;font-size:18px;line-height:1.15;letter-spacing:-.025em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+}
+.reservation-subline{font-size:11px;color:#8d8880;margin-top:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sniper-badge{
+  flex:0 0 auto;border-radius:999px;background:#fff0ee;color:#d8534a;padding:5px 7px;
+  font-size:8px;font-weight:950;letter-spacing:.08em
+}
+.reservation-ticket-bottom{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;margin-top:14px}
+.reservation-time-block{display:flex;flex-direction:column;min-width:0}
+.reservation-time{font-size:24px;line-height:1;font-weight:900;letter-spacing:-.045em}
+.reservation-date-full{font-size:10px;color:#9a958e;margin-top:5px}
+.cancel-reservation-button{
+  flex:0 0 auto;border:1px solid #efcbc7;background:#fff5f4;color:#b8463f;border-radius:12px;
+  padding:9px 12px;font-size:11px;font-weight:900;cursor:pointer
+}
+.cancel-reservation-button:active{transform:scale(.98)}
+.cancel-unavailable{font-size:9px;color:#aaa49b;text-align:right;max-width:90px;line-height:1.25}
+.reservation-policy{font-size:9px;color:#aaa49b;margin-top:9px}
+.reservation-empty{padding:24px 16px}
+.booking-history-panel{
+  margin-top:12px;background:#faf9f7;border:1px solid #e8e4dd;border-radius:16px;padding:12px 14px
+}
+.booking-history-panel summary{font-size:11px;color:#777169;font-weight:850}
+.booking-history-list{padding-top:9px}
+.booking-history-row{
+  display:flex;justify-content:space-between;gap:10px;align-items:center;padding:9px 0;border-top:1px solid #ebe7e1
+}
+.booking-history-row:first-child{border-top:0}
+.booking-history-row>div{min-width:0}
+.booking-history-row strong{display:block;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.booking-history-row span:not(.reservation-state){display:block;font-size:10px;color:#9b968f;margin-top:2px}
+@media(max-width:390px){
+  .reservation-ticket{grid-template-columns:58px 1fr;padding:13px;gap:11px}
+  .reservation-date-tile{min-height:72px}
+  .reservation-time{font-size:22px}
+  .reservation-ticket h3{font-size:17px}
+}
