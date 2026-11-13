@@ -4,7 +4,7 @@
 <div class="section-title" style="margin-top:0"><h2 style="font-size:26px">Settings</h2></div>
 
 <div class="card settings-group">
-  <div class="row"><div class="grow"><div class="title">Scheduler</div><div class="meta">Always on · {{ timezone }}</div></div><span class="status {{ 'booked' if daemon_running else 'failed' }}">{{ 'RUNNING' if daemon_running else 'OFFLINE' }}</span></div>
+  <div class="row"><div class="grow"><div class="title">Watcher</div><div class="meta">Always on · {{ timezone }}</div></div><span class="status {{ 'booked' if daemon_running else 'failed' }}">{{ 'RUNNING' if daemon_running else 'OFFLINE' }}</span></div>
   <div class="divider"></div>
   <div class="row"><div class="grow"><div class="title">Persistent storage</div><div class="meta">{{ data_dir }}</div></div><span class="status {{ 'booked' if has_volume else 'failed' }}">{{ 'ON' if has_volume else 'MISSING' }}</span></div>
 </div>
@@ -27,17 +27,27 @@
   {% endif %}
 </div>
 
-<div class="section-title"><h2>Saved drop rules</h2></div>
+<div class="section-title"><h2>Release intelligence</h2></div>
 {% if restaurants %}
   {% for r in restaurants %}
-  <details style="margin-bottom:10px"><summary>{{ r.name }} · {{ r.days_in_advance }} days @ {{ r.release_time.strftime('%I:%M %p') }}</summary>
-    <form method="post" action="/restaurants/{{ r.id }}/rule" style="margin-top:13px">
-      <div class="grid2"><div class="field"><label class="label">Days ahead</label><input class="input" type="number" name="release_days" min="0" max="365" value="{{ r.days_in_advance }}" required></div><div class="field"><label class="label">Drop time (ET)</label><input class="input" type="time" name="release_time" value="{{ r.release_time.strftime('%H:%M') }}" required></div></div>
-      <button class="cta secondary" type="submit">Save rule</button>
-    </form>
-  </details>
+  <div class="card settings-group">
+    <div class="row">
+      <div class="grow">
+        <div class="title">{{ r.name }}</div>
+        {% if r.release_verified %}
+          <div class="meta">Verified: {{ r.days_in_advance }} days ahead at {{ r.release_time.strftime('%-I:%M %p') }} ET</div>
+        {% else %}
+          <div class="meta">{{ r.release_note or 'Exact release time is not verified. Continuous watch only.' }}</div>
+        {% endif %}
+        {% if r.release_source %}<div class="meta" style="margin-top:6px">Source saved automatically</div>{% endif %}
+      </div>
+      <span class="status {{ 'booked' if r.release_verified else '' }}">{{ 'VERIFIED' if r.release_verified else 'WATCH ONLY' }}</span>
+    </div>
+  </div>
   {% endfor %}
-{% else %}<div class="card empty">Drop rules appear after you add restaurants.</div>{% endif %}
+{% else %}
+  <div class="card empty">Restaurant release rules will be researched automatically as you add watches.</div>
+{% endif %}
 
 <form method="post" action="/logout"><button class="cta secondary" type="submit">Lock app</button></form>
 {% endblock %}
