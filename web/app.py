@@ -517,9 +517,9 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         if not monitors:
             return {"status": "inactive", "slots": []}
 
-        slots = daemon.get_watch_group_availability(group_id)
+        snapshot = daemon.get_watch_group_availability(group_id)
         cleaned = []
-        for slot in slots:
+        for slot in snapshot.get("slots", []):
             raw = str(slot.get("time") or "")
             time_value = raw
             try:
@@ -536,10 +536,13 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "label": label,
                 "type": slot.get("type"),
             })
+
+        checked_at = snapshot.get("checked_at")
         return {
             "status": "watching",
-            "checked_at": now_local_naive().strftime("%-I:%M:%S %p"),
+            "checked_at": checked_at.strftime("%-I:%M:%S %p") if checked_at else None,
             "slots": cleaned,
+            "cached": True,
         }
 
     @app.post("/watches")
