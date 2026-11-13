@@ -219,12 +219,9 @@ class ReservationSniper:
                         if slot:
                             break
 
-                    # If all matching slots failed, try any slot we haven't tried
-                    if not slot:
-                        for s in all_slots:
-                            if s.token not in failed_tokens:
-                                slot = s
-                                break
+                    # Safety: never fall back to an out-of-window slot.
+                    # If no requested time matches, keep polling until the
+                    # snipe window expires.
 
                     if slot:
                         logger.info(f"Found slot: {slot.time_slot} ({slot.table_type})")
