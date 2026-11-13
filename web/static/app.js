@@ -96,11 +96,11 @@ function setupLiveAvailability(){
         return;
       }
 
-      timeBox.textContent=data.checked_at ? 'Updated '+data.checked_at : 'Updated now';
+      timeBox.textContent=data.checked_at ? 'Checked '+data.checked_at : 'Waiting for first check';
       slotsBox.innerHTML='';
 
       if(!data.slots||!data.slots.length){
-        slotsBox.innerHTML='<span class="live-empty">No matching tables right now</span>';
+        slotsBox.innerHTML='<span class="live-empty">No qualifying tables at the last watcher check</span>';
         return;
       }
 
@@ -114,7 +114,7 @@ function setupLiveAvailability(){
       });
     }catch(e){
       timeBox.textContent='Refresh failed';
-      slotsBox.innerHTML='<span class="live-empty">Could not refresh live availability</span>';
+      slotsBox.innerHTML='<span class="live-empty">Could not load cached watcher status</span>';
     }
   }
 
