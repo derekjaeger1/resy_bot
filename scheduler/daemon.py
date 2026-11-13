@@ -259,6 +259,12 @@ class SchedulerDaemon:
 
         with ResyClient(credentials) as client:
             for monitor in monitors:
+                # The list above is a snapshot. A previous row in the same
+                # watch group may have just booked and cancelled its siblings,
+                # so re-check active IDs before every attempt.
+                active_ids = {m.id for m in self.db.get_active_monitors()}
+                if monitor.id not in active_ids:
+                    continue
                 try:
                     self._check_monitor(client, monitor)
                 except Exception as e:
