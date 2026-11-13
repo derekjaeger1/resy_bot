@@ -311,6 +311,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         monitors = db.get_monitors()
         active_monitors = [m for m in monitors if m.status == MonitorStatus.ACTIVE]
         recent_monitors = [m for m in monitors if m.status != MonitorStatus.ACTIVE][:12]
+        recent_bookings = [m for m in monitors if m.status == MonitorStatus.SUCCESS][:3]
 
         grouped = {}
         for monitor in active_monitors:
@@ -364,6 +365,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "home",
                 watch_groups=watch_groups,
                 recent_monitors=recent_monitors,
+                recent_bookings=recent_bookings,
                 orphan_snipes=orphan_snipes,
                 recent=recent,
                 restaurant_map=restaurant_map,
