@@ -310,7 +310,10 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
         monitors = db.get_monitors()
         active_monitors = [m for m in monitors if m.status == MonitorStatus.ACTIVE]
-        recent_monitors = [m for m in monitors if m.status != MonitorStatus.ACTIVE][:12]
+        recent_monitors = [
+            m for m in monitors
+            if m.status not in {MonitorStatus.ACTIVE, MonitorStatus.SUCCESS}
+        ][:12]
 
         # Reservation history is the canonical record of everything this app
         # successfully booked. Enrich upcoming rows with Resy's live state so
@@ -367,6 +370,16 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "cutoff": live.get("cancellation_cutoff") if live else None,
                 "table_type": live.get("table_type") if live else None,
             })
+
+        status_rank = {"active": 0, "not_active": 1, "cancelled": 2, "past": 3}
+        booked_reservations.sort(
+            key=lambda item: (
+                status_rank.get(item["status"], 9),
+                item["history"].target_date.toordinal()
+                if item["status"] == "active"
+                else -item["history"].target_date.toordinal(),
+            )
+        )
 
         grouped = {}
         for monitor in active_monitors:
