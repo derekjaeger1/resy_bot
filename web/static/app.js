@@ -5,11 +5,13 @@ function setupVenueSearch(){
   const picked=document.getElementById('venue-picked');
   const venueId=document.getElementById('venue-id');
   const venueName=document.getElementById('restaurant-name');
+  const venueSlug=document.getElementById('venue-slug');
   let timer;
 
-  function chooseVenue(id,name){
+  function chooseVenue(id,name,slug=''){
     venueId.value=id;
     venueName.value=name;
+    if(venueSlug)venueSlug.value=slug||'';
     input.value=name;
     picked.textContent='✓ '+name;
     picked.style.display='block';
@@ -19,8 +21,7 @@ function setupVenueSearch(){
   input.addEventListener('input',()=>{
     clearTimeout(timer);
     const q=input.value.trim();
-    venueId.value='';
-    venueName.value='';
+    venueId.value='';venueName.value='';if(venueSlug)venueSlug.value='';
     picked.style.display='none';
     if(q.length<2){results.style.display='none';return}
 
@@ -35,7 +36,7 @@ function setupVenueSearch(){
           el.innerHTML='<b></b><small></small>';
           el.querySelector('b').textContent=v.name;
           el.querySelector('small').textContent=[v.neighborhood,v.cuisine].filter(Boolean).join(' · ');
-          el.onclick=()=>chooseVenue(v.id,v.name);
+          el.onclick=()=>chooseVenue(v.id,v.name,v.url_slug||'');
           results.appendChild(el);
         });
         results.style.display=items.length?'block':'none';
@@ -44,46 +45,35 @@ function setupVenueSearch(){
   });
 
   document.querySelectorAll('[data-saved-venue]').forEach(b=>{
-    b.addEventListener('click',()=>chooseVenue(b.dataset.venueId,b.dataset.venueName));
+    b.addEventListener('click',()=>chooseVenue(
+      b.dataset.venueId,b.dataset.venueName,b.dataset.venueSlug||''
+    ));
   });
 }
 
-function setupTimeBricks(){
-  const hidden=document.getElementById('preferred-time');
-  if(!hidden)return;
-  const label=document.getElementById('selected-time-label');
-  const scroller=document.getElementById('time-scroller');
-  const bricks=[...document.querySelectorAll('[data-time-value]')];
-  const custom=document.getElementById('custom-time-input');
-
-  function select(value,text,brick=null){
-    hidden.value=value;
-    label.textContent=text;
-    bricks.forEach(b=>b.classList.remove('selected'));
-    if(brick)brick.classList.add('selected');
-  }
-
-  bricks.forEach(b=>{
-    b.addEventListener('click',()=>select(b.dataset.timeValue,b.dataset.timeLabel,b));
-  });
-
-  if(custom){
-    custom.addEventListener('change',()=>{
-      if(!custom.value)return;
-      const [h,m]=custom.value.split(':').map(Number);
-      const d=new Date(2000,0,1,h,m);
-      const text=d.toLocaleTimeString([], {hour:'numeric',minute:'2-digit'});
-      select(custom.value,text,null);
+function setupRanges(){
+  const dateStart=document.getElementById('date-start');
+  const dateEnd=document.getElementById('date-end');
+  if(dateStart&&dateEnd){
+    dateStart.addEventListener('change',()=>{
+      dateEnd.min=dateStart.value;
+      if(!dateEnd.value||dateEnd.value<dateStart.value)dateEnd.value=dateStart.value;
     });
   }
 
-  const selected=document.querySelector('.time-brick.selected');
-  if(selected&&scroller){
-    requestAnimationFrame(()=>selected.scrollIntoView({behavior:'instant',inline:'center',block:'nearest'}));
-  }
+  const start=document.getElementById('time-start');
+  const end=document.getElementById('time-end');
+  document.querySelectorAll('[data-range-start]').forEach(b=>{
+    b.addEventListener('click',()=>{
+      start.value=b.dataset.rangeStart;
+      end.value=b.dataset.rangeEnd;
+      document.querySelectorAll('[data-range-start]').forEach(x=>x.classList.remove('selected'));
+      b.classList.add('selected');
+    });
+  });
 }
 
 document.addEventListener('DOMContentLoaded',()=>{
   setupVenueSearch();
-  setupTimeBricks();
+  setupRanges();
 });
