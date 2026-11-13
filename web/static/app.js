@@ -125,3 +125,18 @@ function setupLiveAvailability(){
 }
 
 document.addEventListener('DOMContentLoaded',setupLiveAvailability);
+
+function setupBookingCancellation(){
+  document.querySelectorAll('[data-cancel-booking]').forEach(form=>{
+    form.addEventListener('submit',event=>{
+      const restaurant=form.dataset.restaurant||'this reservation';
+      const date=form.dataset.date||'';
+      const time=form.dataset.time||'';
+      const ok=window.confirm(
+        'Cancel '+restaurant+'\n'+[date,time].filter(Boolean).join(' · ')+'?\n\nThis will cancel the reservation in Resy.'
+      );
+      if(!ok)event.preventDefault();
+    });
+  });
+}
+document.addEventListener('DOMContentLoaded',setupBookingCancellation);
