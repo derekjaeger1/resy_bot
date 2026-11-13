@@ -20,20 +20,56 @@
 <div class="notice"><strong>Storage warning:</strong> persistent storage is not detected.</div>
 {% endif %}
 
-{% if recent_bookings %}
-<div class="section-title"><h2>Booked</h2></div>
-{% for monitor in recent_bookings %}
-  {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
-  <article class="booking-success-card">
-    <div class="booking-success-icon">✓</div>
-    <div class="grow">
-      <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-      <div class="booking-success-time">{{ monitor.booked_time|clock }}</div>
-      <div class="watch-date">{{ monitor.target_date.strftime('%A, %B %-d') }} · {{ monitor.party_size }} guest{{ '' if monitor.party_size==1 else 's' }}</div>
-    </div>
-    <span class="status booked">BOOKED</span>
-  </article>
-{% endfor %}
+<div class="section-title">
+  <h2>Reservations</h2>
+  <span class="subtle">{{ booked_reservations|length }} booked</span>
+</div>
+
+{% if booked_reservations %}
+<div class="reservation-list">
+  {% for item in booked_reservations %}
+    {% set booking = item.history %}
+    <article class="reservation-item {{ item.status }}">
+      <div class="reservation-main">
+        <div class="reservation-name">{{ booking.restaurant_name }}</div>
+        <div class="reservation-details">
+          {{ booking.target_date.strftime('%a, %b %-d') }}
+          · {{ booking.booked_time|clock }}
+          · {{ booking.party_size }} guest{{ '' if booking.party_size==1 else 's' }}
+          {% if item.table_type %} · {{ item.table_type }}{% endif %}
+        </div>
+      </div>
+
+      <div class="reservation-actions">
+        {% if item.status == 'active' %}
+          <span class="reservation-state active">ACTIVE</span>
+          {% if item.can_cancel %}
+            <form method="post" action="/bookings/{{ booking.id }}/cancel" data-cancel-booking data-restaurant="{{ booking.restaurant_name }}" data-date="{{ booking.target_date.strftime('%b %-d') }}" data-time="{{ booking.booked_time|clock }}">
+              <button class="reservation-cancel" type="submit">Cancel</button>
+            </form>
+          {% else %}
+            <span class="reservation-note">Cancellation unavailable</span>
+          {% endif %}
+        {% elif item.status == 'cancelled' %}
+          <span class="reservation-state cancelled">CANCELLED</span>
+        {% elif item.status == 'past' %}
+          <span class="reservation-state past">PAST</span>
+        {% else %}
+          <span class="reservation-state inactive">NOT ACTIVE</span>
+        {% endif %}
+      </div>
+
+      {% if item.cutoff and item.status == 'active' %}
+        <div class="reservation-cutoff">Cancellation cutoff: {{ item.cutoff }}</div>
+      {% endif %}
+    </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty-state compact-empty">
+  <h3>No reservations booked yet</h3>
+  <p>Your successful bookings will appear here automatically.</p>
+</div>
 {% endif %}
 
 <div class="section-title">
@@ -119,38 +155,25 @@
 {% endfor %}
 {% endif %}
 
-<div class="section-title"><h2>Recent</h2></div>
+<div class="section-title"><h2>Watch history</h2></div>
 {% if recent_monitors %}
-  {% for monitor in recent_monitors[:8] %}
+  {% for monitor in recent_monitors[:6] %}
     {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
     <article class="history-row">
       <div>
         <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-        <div class="watch-date">{{ monitor.target_date.strftime('%b %-d') }} · {{ monitor.party_size }} guests{% if monitor.booked_time %} · {{ monitor.booked_time|clock }}{% endif %}</div>
+        <div class="watch-date">{{ monitor.target_date.strftime('%b %-d') }} · {{ monitor.party_size }} guests</div>
       </div>
-      {% if monitor.status.value=='success' %}
-        <span class="status booked">BOOKED</span>
-      {% elif monitor.status.value=='expired' %}
+      {% if monitor.status.value=='expired' %}
         <span class="status failed">EXPIRED</span>
+      {% elif monitor.status.value=='cancelled' %}
+        <span class="status">STOPPED</span>
       {% else %}
         <span class="status">{{ monitor.status.value|upper }}</span>
       {% endif %}
     </article>
   {% endfor %}
-{% elif recent %}
-  {% for res in recent %}
-    {% set restaurant = restaurant_map.get(res.restaurant_id) %}
-    <article class="history-row">
-      <div>
-        <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-        <div class="watch-date">{{ res.target_date.strftime('%b %-d') }} · {{ res.party_size }} guests{% if res.booked_time %} · {{ res.booked_time|clock }}{% endif %}</div>
-      </div>
-      {% if res.status.value=='success' %}<span class="status booked">BOOKED</span>
-      {% elif res.status.value=='failed' %}<span class="status failed">FAILED</span>
-      {% else %}<span class="status">{{ res.status.value|upper }}</span>{% endif %}
-    </article>
-  {% endfor %}
 {% else %}
-  <div class="card empty">Nothing here yet.</div>
+  <div class="card empty">No watch history yet.</div>
 {% endif %}
 {% endblock %}
