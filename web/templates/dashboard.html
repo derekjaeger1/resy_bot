@@ -1,101 +1,122 @@
 {% extends "base.html" %}
-{% block title %}My Snipes{% endblock %}
+{% block title %}My Watches{% endblock %}
 {% block content %}
-<section class="hero">
+<section class="home-hero">
   {% if not has_credentials %}
-    <div class="status failed">SETUP NEEDED</div>
-    <h1>Connect Resy once.</h1>
-    <p>After that, scheduling a snipe takes about 20 seconds.</p>
+    <h1>Connect Resy to start.</h1>
+    <p>Once connected, you can watch exact reservation times and auto-book them when they appear.</p>
     <a class="cta" href="/settings">Connect Resy</a>
   {% else %}
-    <div class="status booked">READY</div>
-    <h1>What are we booking?</h1>
-    <p>The scheduler stays on automatically. Pick the table; the server handles the drop.</p>
-    <a class="cta" href="/new">＋ New Snipe</a>
+    <div>
+      <span class="eyebrow">RESERVATION WATCHER</span>
+      <h1>Your tables, handled.</h1>
+      <p>Pick an exact time. We’ll watch for openings and handle the drop.</p>
+    </div>
+    <a class="cta compact" href="/new">＋ Watch a table</a>
   {% endif %}
 </section>
 
 {% if not has_volume %}
-<div class="notice" style="margin-top:14px"><strong>Storage warning:</strong> Railway persistent storage is not detected. Snipes can disappear after a redeploy.</div>
+<div class="notice"><strong>Storage warning:</strong> persistent storage is not detected.</div>
 {% endif %}
 
-<div class="section-title"><h2>Upcoming</h2><span class="subtle">{{ upcoming|length }} armed</span></div>
-{% if upcoming %}
-  {% for res in upcoming %}
-    {% set restaurant = restaurant_map.get(res.restaurant_id) %}
-    {% set prefs = pref_map.get(res.id, []) %}
-    <div class="card">
-      <div class="row">
-        <div class="grow">
-          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-          <div class="meta">{{ res.target_date.strftime('%a, %b %d') }} · {{ res.party_size }} guests{% if prefs %} · {{ prefs[0].time|clock }}{% if prefs[0].window_minutes %} ±{{ prefs[0].window_minutes }}m{% else %} exact{% endif %}{% endif %}</div>
-          <div class="fire">Fires {{ res.snipe_at.strftime('%a, %b %d at %I:%M %p') }} ET</div>
-        </div>
-        <span class="status {% if res.status.value=='in_progress' %}running{% else %}armed{% endif %}">{{ 'SNIPING' if res.status.value=='in_progress' else 'ARMED' }}</span>
-      </div>
-      <div class="mini-actions">
-        {% if res.status.value=='pending' %}<form method="post" action="/snipes/{{ res.id }}/cancel"><button class="mini" type="submit">Cancel</button></form>{% endif %}
-      </div>
-    </div>
-  {% endfor %}
-{% else %}
-  <div class="card empty">No snipes armed. <a href="/new" style="color:white;font-weight:800">Create one →</a></div>
-{% endif %}
+<div class="section-title">
+  <h2>Watching</h2>
+  <span class="subtle">{{ active_monitors|length }} active</span>
+</div>
 
-<div class="section-title"><h2>Watching</h2><span class="subtle">{{ active_monitors|length }} active</span></div>
 {% if active_monitors %}
   {% for monitor in active_monitors %}
     {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
-    <div class="card">
-      <div class="row">
-        <div class="grow">
-          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-          <div class="meta">{{ monitor.target_date.strftime('%a, %b %d') }} · {{ monitor.party_size }} guests · {{ monitor.preferred_time|clock }}{% if monitor.time_window %} ±{{ monitor.time_window }}m{% else %} exact{% endif %}</div>
-          <div class="fire">Watching for cancellations/openings now</div>
+    {% set boost = drop_boost.get(monitor.id) %}
+    <article class="watch-card">
+      <div class="watch-card-top">
+        <div>
+          <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+          <div class="watch-date">{{ monitor.target_date.strftime('%A, %B %-d') }} · {{ monitor.party_size }} guest{{ '' if monitor.party_size==1 else 's' }}</div>
         </div>
-        <span class="status running">WATCHING</span>
+        <span class="status watching">WATCHING</span>
       </div>
-      <div class="mini-actions"><form method="post" action="/monitors/{{ monitor.id }}/cancel"><button class="mini" type="submit">Stop watching</button></form></div>
-    </div>
+
+      <div class="watch-time">{{ monitor.preferred_time|clock }}</div>
+      <div class="watch-exact">Exact time only</div>
+
+      {% if boost %}
+        <div class="boost-row">⚡ Drop boost armed for {{ boost.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
+      {% else %}
+        <div class="boost-row neutral">↻ Checking for new or cancelled tables</div>
+      {% endif %}
+
+      {% if monitor.last_checked %}
+        <div class="last-check">Last checked {{ monitor.last_checked.strftime('%-I:%M %p') }} ET · {{ monitor.check_count }} checks</div>
+      {% endif %}
+
+      <form method="post" action="/monitors/{{ monitor.id }}/cancel">
+        <button class="text-button" type="submit">Stop watching</button>
+      </form>
+    </article>
   {% endfor %}
 {% else %}
-  <div class="card empty">No cancellation watches active.</div>
+  <div class="empty-state">
+    <div class="empty-icon">◷</div>
+    <h3>No tables being watched</h3>
+    <p>Pick a restaurant, date, and exact time.</p>
+    <a class="cta compact" href="/new">Watch a table</a>
+  </div>
+{% endif %}
+
+{% if orphan_snipes %}
+<div class="section-title"><h2>Scheduled</h2></div>
+{% for res in orphan_snipes %}
+  {% set restaurant = restaurant_map.get(res.restaurant_id) %}
+  {% set prefs = pref_map.get(res.id, []) %}
+  <article class="watch-card">
+    <div class="watch-card-top">
+      <div>
+        <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+        <div class="watch-date">{{ res.target_date.strftime('%A, %B %-d') }} · {{ res.party_size }} guests</div>
+      </div>
+      <span class="status armed">ARMED</span>
+    </div>
+    {% if prefs %}<div class="watch-time">{{ prefs[0].time|clock }}</div>{% endif %}
+    <div class="boost-row">⚡ Fires {{ res.snipe_at.strftime('%b %-d at %-I:%M %p') }} ET</div>
+    <form method="post" action="/snipes/{{ res.id }}/cancel"><button class="text-button" type="submit">Cancel</button></form>
+  </article>
+{% endfor %}
 {% endif %}
 
 <div class="section-title"><h2>Recent</h2></div>
-{% if recent %}
-  {% for res in recent %}
-    {% set restaurant = restaurant_map.get(res.restaurant_id) %}
-    <div class="card">
-      <div class="row">
-        <div class="grow">
-          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-          <div class="meta">{{ res.target_date.strftime('%a, %b %d') }} · {{ res.party_size }} guests{% if res.booked_time %} · {{ res.booked_time|clock }}{% endif %}</div>
-          {% if res.result_message %}<div class="meta" style="margin-top:8px">{{ res.result_message }}</div>{% endif %}
-        </div>
-        {% if res.status.value=='success' %}<span class="status booked">BOOKED</span>
-        {% elif res.status.value=='failed' %}<span class="status failed">FAILED</span>
-        {% else %}<span class="status">{{ res.status.value|upper }}</span>{% endif %}
-      </div>
-      <div class="mini-actions"><form method="post" action="/snipes/{{ res.id }}/delete"><button class="mini" type="submit">Remove</button></form></div>
-    </div>
-  {% endfor %}
-{% else %}<div class="card empty">Nothing here yet.</div>{% endif %}
-
 {% if recent_monitors %}
   {% for monitor in recent_monitors %}
     {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
-    <div class="card">
-      <div class="row">
-        <div class="grow">
-          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
-          <div class="meta">{{ monitor.target_date.strftime('%a, %b %d') }} · {{ monitor.party_size }} guests{% if monitor.booked_time %} · {{ monitor.booked_time|clock }}{% endif %}</div>
-        </div>
-        {% if monitor.status.value=='success' %}<span class="status booked">BOOKED</span>
-        {% elif monitor.status.value=='expired' %}<span class="status failed">EXPIRED</span>
-        {% else %}<span class="status">{{ monitor.status.value|upper }}</span>{% endif %}
+    <article class="history-row">
+      <div>
+        <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+        <div class="watch-date">{{ monitor.target_date.strftime('%b %-d') }} · {{ monitor.party_size }} guests · {{ monitor.preferred_time|clock }}</div>
       </div>
-    </div>
+      {% if monitor.status.value=='success' %}
+        <span class="status booked">BOOKED</span>
+      {% elif monitor.status.value=='expired' %}
+        <span class="status failed">EXPIRED</span>
+      {% else %}
+        <span class="status">{{ monitor.status.value|upper }}</span>
+      {% endif %}
+    </article>
   {% endfor %}
+{% elif recent %}
+  {% for res in recent %}
+    {% set restaurant = restaurant_map.get(res.restaurant_id) %}
+    <article class="history-row">
+      <div>
+        <div class="watch-restaurant">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+        <div class="watch-date">{{ res.target_date.strftime('%b %-d') }} · {{ res.party_size }} guests{% if res.booked_time %} · {{ res.booked_time|clock }}{% endif %}</div>
+      </div>
+      {% if res.status.value=='success' %}<span class="status booked">BOOKED</span>
+      {% elif res.status.value=='failed' %}<span class="status failed">FAILED</span>
+      {% else %}<span class="status">{{ res.status.value|upper }}</span>{% endif %}
+    </article>
+  {% endfor %}
+{% else %}
+  <div class="card empty">Nothing here yet.</div>
 {% endif %}
 {% endblock %}
