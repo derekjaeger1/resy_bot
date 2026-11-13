@@ -20,56 +20,99 @@
 <div class="notice"><strong>Storage warning:</strong> persistent storage is not detected.</div>
 {% endif %}
 
-<div class="section-title">
-  <h2>Reservations</h2>
-  <span class="subtle">{{ booked_reservations|length }} booked</span>
+<div class="section-title reservation-section-title">
+  <div>
+    <span class="eyebrow">YOUR RESY</span>
+    <h2>Upcoming reservations</h2>
+  </div>
+  <span class="reservation-count">{{ account_reservations|length }}</span>
 </div>
 
-{% if booked_reservations %}
-<div class="reservation-list">
-  {% for item in booked_reservations %}
-    {% set booking = item.history %}
-    <article class="reservation-item {{ item.status }}">
-      <div class="reservation-main">
-        <div class="reservation-name">{{ booking.restaurant_name }}</div>
-        <div class="reservation-details">
-          {{ booking.target_date.strftime('%a, %b %-d') }}
-          · {{ booking.booked_time|clock }}
-          · {{ booking.party_size }} guest{{ '' if booking.party_size==1 else 's' }}
-          {% if item.table_type %} · {{ item.table_type }}{% endif %}
-        </div>
+{% if not live_resy_ok %}
+<div class="notice">I couldn’t refresh your live Resy reservations right now. Your watches are still running.</div>
+{% endif %}
+
+{% if account_reservations %}
+<div class="reservation-wallet">
+  {% for item in account_reservations %}
+    {% set r = item.live %}
+    <article class="reservation-ticket">
+      <div class="reservation-date-tile">
+        <span class="reservation-month">{{ item.date_obj.strftime('%b')|upper }}</span>
+        <strong>{{ item.date_obj.strftime('%-d') }}</strong>
+        <span class="reservation-day">{{ item.date_obj.strftime('%a') }}</span>
       </div>
 
-      <div class="reservation-actions">
-        {% if item.status == 'active' %}
-          <span class="reservation-state active">ACTIVE</span>
-          {% if item.can_cancel %}
-            <form method="post" action="/bookings/{{ booking.id }}/cancel" data-cancel-booking data-restaurant="{{ booking.restaurant_name }}" data-date="{{ booking.target_date.strftime('%b %-d') }}" data-time="{{ booking.booked_time|clock }}">
-              <button class="reservation-cancel" type="submit">Cancel</button>
-            </form>
-          {% else %}
-            <span class="reservation-note">Cancellation unavailable</span>
+      <div class="reservation-ticket-body">
+        <div class="reservation-ticket-top">
+          <div class="reservation-ticket-copy">
+            <h3>{{ r.venue_name }}</h3>
+            <div class="reservation-subline">
+              {% if r.neighborhood %}{{ r.neighborhood }} · {% endif %}
+              {{ r.party_size }} guest{{ '' if r.party_size==1 else 's' }}
+              {% if r.table_type %} · {{ r.table_type }}{% endif %}
+            </div>
+          </div>
+
+          {% if item.booked_by_sniper %}
+            <span class="sniper-badge">SNIPER</span>
           {% endif %}
-        {% elif item.status == 'cancelled' %}
-          <span class="reservation-state cancelled">CANCELLED</span>
-        {% elif item.status == 'past' %}
-          <span class="reservation-state past">PAST</span>
-        {% else %}
-          <span class="reservation-state inactive">NOT ACTIVE</span>
+        </div>
+
+        <div class="reservation-ticket-bottom">
+          <div class="reservation-time-block">
+            <span class="reservation-time">{{ item.time_label }}</span>
+            <span class="reservation-date-full">{{ item.date_obj.strftime('%A, %B %-d') }}</span>
+          </div>
+
+          {% if item.can_cancel %}
+          <form method="post"
+                action="/resy-reservations/{{ r.reservation_id }}/cancel"
+                data-cancel-booking
+                data-restaurant="{{ r.venue_name }}"
+                data-date="{{ item.date_obj.strftime('%b %-d') }}"
+                data-time="{{ item.time_label }}">
+            <button class="cancel-reservation-button" type="submit">Cancel</button>
+          </form>
+          {% else %}
+            <span class="cancel-unavailable">Cancellation unavailable</span>
+          {% endif %}
+        </div>
+
+        {% if r.cancellation_cutoff %}
+          <div class="reservation-policy">Cancel by {{ r.cancellation_cutoff }}</div>
         {% endif %}
       </div>
-
-      {% if item.cutoff and item.status == 'active' %}
-        <div class="reservation-cutoff">Cancellation cutoff: {{ item.cutoff }}</div>
-      {% endif %}
     </article>
   {% endfor %}
 </div>
 {% else %}
-<div class="empty-state compact-empty">
-  <h3>No reservations booked yet</h3>
-  <p>Your successful bookings will appear here automatically.</p>
+<div class="empty-state reservation-empty">
+  <div class="empty-icon">◷</div>
+  <h3>No upcoming reservations</h3>
+  <p>Your live Resy reservations will appear here automatically.</p>
 </div>
+{% endif %}
+
+{% if booking_history %}
+<details class="booking-history-panel">
+  <summary>Past & cancelled bot bookings</summary>
+  <div class="booking-history-list">
+    {% for booking in booking_history[:12] %}
+      <div class="booking-history-row">
+        <div>
+          <strong>{{ booking.restaurant_name }}</strong>
+          <span>{{ booking.target_date.strftime('%b %-d') }} · {{ booking.booked_time|clock }} · {{ booking.party_size }} guests</span>
+        </div>
+        {% if booking.cancelled_at %}
+          <span class="reservation-state cancelled">CANCELLED</span>
+        {% else %}
+          <span class="reservation-state past">PAST</span>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</details>
 {% endif %}
 
 <div class="section-title">
