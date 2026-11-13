@@ -6,8 +6,9 @@ import hashlib
 import hmac
 import json
 import os
+import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, time as dt_time
+from datetime import datetime, time as dt_time, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -26,6 +27,7 @@ from config import (
     SESSION_COOKIE_NAME,
 )
 from resy.client import AuthenticationError, ResyClient, login as resy_login, search_venues
+from release_rules import resolve_release_rule
 from resy.models import ResyCredentials
 from scheduler.daemon import SchedulerDaemon
 from storage.database import Database
@@ -78,18 +80,22 @@ def _parse_preferences(raw: str | None) -> list[dict]:
 
 
 def _has_verified_drop_rule(restaurant) -> bool:
-    """Only arm high-speed drops for restaurant rules we actually trust."""
-    name = (restaurant.name or "").lower()
+    """True only for an exact, restaurant-specific release rule."""
+    return bool(getattr(restaurant, "release_verified", False))
 
-    # Ambassadors Clubhouse publishes a monthly-block release approximately
-    # two weeks before the first of the month, but no fixed public day/time.
-    # A rolling N-days-before calculation would be wrong, so never arm one.
-    if "ambassadors clubhouse" in name:
-        return False
 
-    # Existing saved rules for other restaurants may be user-entered or
-    # previously verified. New restaurants are never drop-armed on first save.
-    return True
+def _minutes(value: str) -> int:
+    parsed = datetime.strptime(value, "%H:%M")
+    return parsed.hour * 60 + parsed.minute
+
+
+def _hhmm(total: int) -> str:
+    total = max(0, min(23 * 60 + 59, int(total)))
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
+def _clock_label(value: str) -> str:
+    return datetime.strptime(value, "%H:%M").strftime("%-I:%M %p")
 
 
 def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None) -> FastAPI:
@@ -104,67 +110,84 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         ):
             return False
         prefs = _parse_preferences(reservation.preferred_times)
-        return bool(prefs and prefs[0].get("time") == monitor.preferred_time)
+        if not prefs:
+            return False
+        pref = prefs[0]
+        return (
+            pref.get("time") == monitor.preferred_time
+            and int(pref.get("window_minutes", 0)) == int(monitor.time_window or 0)
+        )
+
+    def _cancel_group_after_booking(group_id: str | None, keep_monitor_id: int | None = None) -> None:
+        if not group_id:
+            return
+        group_monitors = [m for m in db.get_monitors() if m.watch_group_id == group_id]
+        group_dates = {m.target_date for m in group_monitors}
+        if not group_monitors:
+            return
+        restaurant_id = group_monitors[0].restaurant_id
+        party_size = group_monitors[0].party_size
+
+        for monitor in group_monitors:
+            if monitor.id != keep_monitor_id and monitor.status == MonitorStatus.ACTIVE:
+                db.cancel_monitor(monitor.id)
+
+        for reservation in db.get_pending_reservations():
+            if (
+                reservation.restaurant_id == restaurant_id
+                and reservation.party_size == party_size
+                and reservation.target_date in group_dates
+            ):
+                db.update_reservation_status(
+                    reservation.id,
+                    ReservationStatus.CANCELLED,
+                    result_message="Cancelled automatically after another date/time in this watch booked",
+                )
+                daemon.cancel_job(reservation.id)
 
     def _on_snipe_complete(reservation, result) -> None:
-        # If the high-speed drop snipe books first, shut off its paired watch
-        # so the user can never be booked twice for the same table.
         if not result.success:
             return
         for monitor in db.get_active_monitors():
             if _watch_matches_snipe(monitor, reservation):
+                group_id = monitor.watch_group_id
                 db.cancel_monitor(monitor.id)
+                _cancel_group_after_booking(group_id, keep_monitor_id=monitor.id)
+                break
 
     daemon.on_snipe_complete = _on_snipe_complete
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # One-time cleanup of an old V2 default we previously saved for
-        # Straker's. Resy's current published rule is two weeks at midnight.
-        # Recalculate any still-pending legacy drop job so the old 9 AM value
-        # cannot fire later.
+        # Refresh restaurant-specific release intelligence from our verified
+        # registry / public Resy listing parser. Never invent a release time.
         for restaurant in db.get_restaurants():
-            if "straker" in restaurant.name.lower() and restaurant.days_in_advance == 14:
-                corrected = restaurant
-                if restaurant.release_time != dt_time(0, 0):
-                    corrected = db.update_restaurant(restaurant.id, release_time=dt_time(0, 0))
-                if corrected:
-                    for reservation in db.get_pending_reservations():
-                        if reservation.restaurant_id != corrected.id:
-                            continue
-                        corrected_fire = db.calculate_snipe_time(corrected, reservation.target_date)
-                        if corrected_fire > now_local_naive():
-                            db.update_reservation(reservation.id, snipe_at=corrected_fire)
-                        else:
-                            db.update_reservation_status(
-                                reservation.id,
-                                ReservationStatus.CANCELLED,
-                                result_message="Cancelled legacy job after correcting Straker's release time",
-                            )
+            rule = resolve_release_rule(restaurant.name, getattr(restaurant, "url_slug", None))
+            updates = {
+                "release_verified": bool(rule.verified and rule.snipeable),
+                "release_source": rule.source,
+                "release_note": rule.note,
+            }
+            if rule.verified and rule.snipeable and rule.days_in_advance is not None and rule.release_time:
+                updates.update({
+                    "days_in_advance": rule.days_in_advance,
+                    "release_time": rule.release_time,
+                    "release_pattern": ReleasePattern.DAILY,
+                })
+            db.update_restaurant(restaurant.id, **updates)
 
-        # V3 migration: the Watch record is now the source of truth.
-        # Cancel any legacy scheduled snipe that is not paired with an active
-        # watch so an old hidden job can never book unexpectedly.
+        # The Watch record is the source of truth. Remove stale legacy drop
+        # jobs, and remove any drop job whose restaurant no longer has a
+        # verified exact release rule.
         active_watches = db.get_active_monitors()
         for reservation in db.get_pending_reservations():
             restaurant = db.get_restaurant(reservation.restaurant_id)
             paired = any(_watch_matches_snipe(monitor, reservation) for monitor in active_watches)
-
-            # Never keep a drop job for a restaurant whose public release time
-            # is not actually verified. Ambassadors Clubhouse is the current
-            # known example: it releases a month at a time and publishes no
-            # fixed public hour.
-            if restaurant and not _has_verified_drop_rule(restaurant):
+            if not restaurant or not _has_verified_drop_rule(restaurant) or not paired:
                 db.update_reservation_status(
                     reservation.id,
                     ReservationStatus.CANCELLED,
-                    result_message="Cancelled unverified drop boost; continuous watch remains active",
-                )
-            elif not paired:
-                db.update_reservation_status(
-                    reservation.id,
-                    ReservationStatus.CANCELLED,
-                    result_message="Cancelled legacy unpaired snipe during Watch migration",
+                    result_message="Cancelled stale or unverified drop boost; watch remains source of truth",
                 )
 
         if not daemon.is_running():
@@ -287,17 +310,49 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
         monitors = db.get_monitors()
         active_monitors = [m for m in monitors if m.status == MonitorStatus.ACTIVE]
-        recent_monitors = [m for m in monitors if m.status != MonitorStatus.ACTIVE][:8]
+        recent_monitors = [m for m in monitors if m.status != MonitorStatus.ACTIVE][:12]
 
-        drop_boost = {}
+        grouped = {}
         for monitor in active_monitors:
-            for reservation in upcoming:
-                if _watch_matches_snipe(monitor, reservation):
-                    drop_boost[monitor.id] = reservation
-                    break
+            key = monitor.watch_group_id or f"legacy-{monitor.id}"
+            grouped.setdefault(key, []).append(monitor)
 
-        # Keep legacy orphan snipes visible so nothing can run silently.
-        paired_snipe_ids = {r.id for r in drop_boost.values()}
+        watch_groups = []
+        paired_snipe_ids = set()
+        for group_id, rows in grouped.items():
+            rows.sort(key=lambda m: m.target_date)
+            first = rows[0]
+            boosts = []
+            for reservation in upcoming:
+                if any(_watch_matches_snipe(m, reservation) for m in rows):
+                    boosts.append(reservation)
+                    paired_snipe_ids.add(reservation.id)
+
+            start_time = first.time_start
+            end_time = first.time_end
+            if not start_time or not end_time:
+                center = _minutes(first.preferred_time)
+                start_time = _hhmm(center - int(first.time_window or 0))
+                end_time = _hhmm(center + int(first.time_window or 0))
+
+            checked = [m.last_checked for m in rows if m.last_checked]
+            watch_groups.append({
+                "id": group_id,
+                "restaurant": restaurant_map.get(first.restaurant_id),
+                "party_size": first.party_size,
+                "date_start": rows[0].target_date,
+                "date_end": rows[-1].target_date,
+                "time_start": start_time,
+                "time_end": end_time,
+                "time_start_label": _clock_label(start_time),
+                "time_end_label": _clock_label(end_time),
+                "checks": sum(m.check_count or 0 for m in rows),
+                "last_checked": max(checked) if checked else None,
+                "boosts": sorted(boosts, key=lambda r: r.snipe_at),
+                "date_count": len(rows),
+            })
+
+        watch_groups.sort(key=lambda g: (g["date_start"], g["restaurant"].name if g["restaurant"] else ""))
         orphan_snipes = [r for r in upcoming if r.id not in paired_snipe_ids]
 
         creds = db.get_credentials()
@@ -307,9 +362,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             context=common_context(
                 request,
                 "home",
-                active_monitors=active_monitors,
+                watch_groups=watch_groups,
                 recent_monitors=recent_monitors,
-                drop_boost=drop_boost,
                 orphan_snipes=orphan_snipes,
                 recent=recent,
                 restaurant_map=restaurant_map,
@@ -355,6 +409,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             "name": item.get("name") or "Unknown",
             "neighborhood": item.get("neighborhood") or "",
             "cuisine": item.get("cuisine") or "",
+            "url_slug": item.get("url_slug") or "",
         } for item in results if item.get("id")]
 
     @app.post("/watches")
@@ -362,9 +417,12 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     async def create_watch(
         venue_id: int = Form(...),
         restaurant_name: str = Form(...),
-        target_date: str = Form(...),
+        venue_slug: str = Form(""),
+        date_start: str = Form(...),
+        date_end: str = Form(...),
         party_size: int = Form(...),
-        preferred_time: str = Form(...),
+        time_start: str = Form(...),
+        time_end: str = Form(...),
     ):
         if not db.get_credentials():
             return _redirect("/settings", error="Connect your Resy account before creating a watch.")
@@ -372,84 +430,121 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             raise HTTPException(400, "Invalid party size")
 
         try:
-            target = datetime.strptime(target_date, "%Y-%m-%d").date()
-            datetime.strptime(preferred_time, "%H:%M")
+            start_date = datetime.strptime(date_start, "%Y-%m-%d").date()
+            end_date = datetime.strptime(date_end, "%Y-%m-%d").date()
+            start_minutes = _minutes(time_start)
+            end_minutes = _minutes(time_end)
         except ValueError:
             raise HTTPException(400, "Invalid date or time")
 
-        if target < now_local_naive().date():
-            return _redirect("/new", error="That reservation date has already passed.")
+        today = now_local_naive().date()
+        if start_date < today:
+            return _redirect("/new", error="The first watch date has already passed.")
+        if end_date < start_date:
+            return _redirect("/new", error="End date must be on or after the start date.")
+        date_count = (end_date - start_date).days + 1
+        if date_count > 14:
+            return _redirect("/new", error="A single watch can cover up to 14 consecutive dates.")
+        if end_minutes < start_minutes:
+            return _redirect("/new", error="End time must be later than the start time.")
 
+        midpoint = (start_minutes + end_minutes) // 2
+        window = max(midpoint - start_minutes, end_minutes - midpoint)
+        preferred_time = _hhmm(midpoint)
+        group_id = uuid.uuid4().hex[:16]
+
+        # Resolve the restaurant's release rule automatically. User never
+        # enters or guesses it.
+        rule = resolve_release_rule(restaurant_name.strip(), venue_slug.strip() or None)
         restaurant = db.get_restaurant_by_venue_id(venue_id)
-        is_new_restaurant = restaurant is None
-        if not restaurant:
-            # Safe default for persistence. We do NOT assume this is the real
-            # drop rule for a new restaurant, so no high-speed drop job is
-            # armed from this guessed value.
+        updates = {
+            "name": restaurant_name.strip(),
+            "url_slug": venue_slug.strip() or None,
+            "release_verified": bool(rule.verified and rule.snipeable),
+            "release_source": rule.source,
+            "release_note": rule.note,
+        }
+        if rule.verified and rule.snipeable and rule.days_in_advance is not None and rule.release_time:
+            updates.update({
+                "days_in_advance": rule.days_in_advance,
+                "release_time": rule.release_time,
+                "release_pattern": ReleasePattern.DAILY,
+            })
+
+        if restaurant:
+            restaurant = db.update_restaurant(restaurant.id, **updates)
+        else:
             restaurant = db.add_restaurant(
                 venue_id=venue_id,
                 name=restaurant_name.strip(),
-                release_time=dt_time(0, 0),
-                days_in_advance=14,
+                release_time=rule.release_time or dt_time(0, 0),
+                days_in_advance=rule.days_in_advance or 14,
                 release_pattern=ReleasePattern.DAILY,
                 city="New York",
+                release_verified=bool(rule.verified and rule.snipeable),
+                release_source=rule.source,
+                release_note=rule.note,
+                url_slug=venue_slug.strip() or None,
             )
 
-        # The watch is the source of truth and starts immediately. Exact means
-        # exact: time_window=0, so no neighboring reservation can be booked.
-        monitor = db.add_monitor(
-            restaurant_id=restaurant.id,
-            target_date=target,
-            party_size=party_size,
-            preferred_time=preferred_time,
-            time_window=0,
-            table_type=None,
-        )
+        created_monitors = []
+        drop_count = 0
+        current_date = start_date
+        while current_date <= end_date:
+            monitor = db.add_monitor(
+                restaurant_id=restaurant.id,
+                target_date=current_date,
+                party_size=party_size,
+                preferred_time=preferred_time,
+                time_window=window,
+                table_type=None,
+                watch_group_id=group_id,
+                time_start=time_start,
+                time_end=time_end,
+            )
+            created_monitors.append(monitor)
 
+            if _has_verified_drop_rule(restaurant):
+                snipe_at = db.calculate_snipe_time(restaurant, current_date)
+                if snipe_at > now_local_naive():
+                    reservation = db.schedule_reservation(
+                        restaurant_id=restaurant.id,
+                        target_date=current_date,
+                        party_size=party_size,
+                        snipe_at=snipe_at,
+                        preferred_times=[{
+                            "time": preferred_time,
+                            "window_minutes": window,
+                            "table_type": None,
+                        }],
+                    )
+                    daemon.schedule_job(reservation)
+                    drop_count += 1
+
+            current_date += timedelta(days=1)
+
+        # Search immediately. If a qualifying slot is open right now, the
+        # monitor worker attempts to book it within seconds; otherwise the same
+        # rows continue as the background watch.
         daemon.poll_monitors_now()
 
-        # For restaurants with a saved/known release rule, add a high-speed
-        # drop boost if the official release is still in the future.
-        snipe_at = db.calculate_snipe_time(restaurant, target)
-        drop_armed = False
-        if (
-            not is_new_restaurant
-            and _has_verified_drop_rule(restaurant)
-            and snipe_at > now_local_naive()
-        ):
-            preference = {
-                "time": preferred_time,
-                "window_minutes": 0,
-                "table_type": None,
-            }
-            reservation = db.schedule_reservation(
-                restaurant_id=restaurant.id,
-                target_date=target,
-                party_size=party_size,
-                snipe_at=snipe_at,
-                preferred_times=[preference],
-            )
-            daemon.schedule_job(reservation)
-            drop_armed = True
-
-        time_label = datetime.strptime(preferred_time, "%H:%M").strftime("%-I:%M %p")
-        if drop_armed:
+        date_label = (
+            start_date.strftime("%b %-d")
+            if start_date == end_date
+            else f"{start_date.strftime('%b %-d')}–{end_date.strftime('%b %-d')}"
+        )
+        time_label = f"{_clock_label(time_start)}–{_clock_label(time_end)}"
+        if drop_count:
             message = (
-                f"Watching {restaurant.name} for exactly {time_label}. "
-                f"High-speed drop booking is also armed for {_fmt_fire(snipe_at)} ET."
+                f"Checking {restaurant.name} now for {date_label}, {time_label}. "
+                f"If nothing is open, the watch stays active and {drop_count} verified drop "
+                f"{'attempt is' if drop_count == 1 else 'attempts are'} armed automatically."
             )
         else:
-            if not _has_verified_drop_rule(restaurant):
-                message = (
-                    f"Watching {restaurant.name} for exactly {time_label}. "
-                    "Its public drop time is not verified, so I will watch continuously "
-                    "instead of pretending there is a precise release time."
-                )
-            else:
-                message = (
-                    f"Watching {restaurant.name} for exactly {time_label}. "
-                    "If that table opens, I'll attempt to book it automatically."
-                )
+            message = (
+                f"Checking {restaurant.name} now for {date_label}, {time_label}. "
+                "If nothing is open, the watch stays active automatically."
+            )
         return _redirect("/", message=message)
 
     @app.post("/snipes/{reservation_id}/cancel")
@@ -467,6 +562,30 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         daemon.cancel_job(reservation_id)
         db.delete_reservation(reservation_id)
         return _redirect("/", message="Removed.")
+
+    @app.post("/watch-groups/{group_id}/cancel")
+    async def cancel_watch_group(group_id: str):
+        monitors = [m for m in db.get_monitors() if m.watch_group_id == group_id]
+        for monitor in monitors:
+            if monitor.status == MonitorStatus.ACTIVE:
+                db.cancel_monitor(monitor.id)
+        dates = {m.target_date for m in monitors}
+        if monitors:
+            restaurant_id = monitors[0].restaurant_id
+            party_size = monitors[0].party_size
+            for reservation in db.get_pending_reservations():
+                if (
+                    reservation.restaurant_id == restaurant_id
+                    and reservation.party_size == party_size
+                    and reservation.target_date in dates
+                ):
+                    db.update_reservation_status(
+                        reservation.id,
+                        ReservationStatus.CANCELLED,
+                        result_message="Cancelled with range watch",
+                    )
+                    daemon.cancel_job(reservation.id)
+        return _redirect("/", message="Watch stopped.")
 
     @app.post("/monitors/{monitor_id}/cancel")
     async def cancel_monitor(monitor_id: int):
