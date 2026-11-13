@@ -42,6 +42,26 @@
   <div class="card empty">No snipes armed. <a href="/new" style="color:white;font-weight:800">Create one →</a></div>
 {% endif %}
 
+<div class="section-title"><h2>Watching</h2><span class="subtle">{{ active_monitors|length }} active</span></div>
+{% if active_monitors %}
+  {% for monitor in active_monitors %}
+    {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
+    <div class="card">
+      <div class="row">
+        <div class="grow">
+          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+          <div class="meta">{{ monitor.target_date.strftime('%a, %b %d') }} · {{ monitor.party_size }} guests · {{ monitor.preferred_time|clock }}{% if monitor.time_window %} ±{{ monitor.time_window }}m{% else %} exact{% endif %}</div>
+          <div class="fire">Watching for cancellations/openings now</div>
+        </div>
+        <span class="status running">WATCHING</span>
+      </div>
+      <div class="mini-actions"><form method="post" action="/monitors/{{ monitor.id }}/cancel"><button class="mini" type="submit">Stop watching</button></form></div>
+    </div>
+  {% endfor %}
+{% else %}
+  <div class="card empty">No cancellation watches active.</div>
+{% endif %}
+
 <div class="section-title"><h2>Recent</h2></div>
 {% if recent %}
   {% for res in recent %}
@@ -61,4 +81,21 @@
     </div>
   {% endfor %}
 {% else %}<div class="card empty">Nothing here yet.</div>{% endif %}
+
+{% if recent_monitors %}
+  {% for monitor in recent_monitors %}
+    {% set restaurant = restaurant_map.get(monitor.restaurant_id) %}
+    <div class="card">
+      <div class="row">
+        <div class="grow">
+          <div class="title">{{ restaurant.name if restaurant else 'Restaurant' }}</div>
+          <div class="meta">{{ monitor.target_date.strftime('%a, %b %d') }} · {{ monitor.party_size }} guests{% if monitor.booked_time %} · {{ monitor.booked_time|clock }}{% endif %}</div>
+        </div>
+        {% if monitor.status.value=='success' %}<span class="status booked">BOOKED</span>
+        {% elif monitor.status.value=='expired' %}<span class="status failed">EXPIRED</span>
+        {% else %}<span class="status">{{ monitor.status.value|upper }}</span>{% endif %}
+      </div>
+    </div>
+  {% endfor %}
+{% endif %}
 {% endblock %}
