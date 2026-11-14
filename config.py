@@ -28,3 +28,13 @@ MONITOR_POLL_TICK_SECONDS = int(os.getenv("MONITOR_POLL_TICK_SECONDS", "15"))
 MONITOR_NEAR_INTERVAL_SECONDS = int(os.getenv("MONITOR_NEAR_INTERVAL_SECONDS", "15"))
 MONITOR_WEEK_INTERVAL_SECONDS = int(os.getenv("MONITOR_WEEK_INTERVAL_SECONDS", "30"))
 MONITOR_FAR_INTERVAL_SECONDS = int(os.getenv("MONITOR_FAR_INTERVAL_SECONDS", "60"))
+
+# OpenTable provider. Official API credentials override the browser fallback when present.
+OPENTABLE_API_ACCESS_TOKEN = os.getenv("OPENTABLE_API_ACCESS_TOKEN", "")
+OPENTABLE_API_BASE_URL = os.getenv("OPENTABLE_API_BASE_URL", "")
+OPENTABLE_WEB_ENABLED = os.getenv("OPENTABLE_WEB_ENABLED", "true").lower() not in {"0", "false", "no"}
+OPENTABLE_WEB_PROFILE_DIR = os.getenv(
+    "OPENTABLE_WEB_PROFILE_DIR",
+    str(DATA_DIR / "opentable-browser"),
+)
+OPENTABLE_WEB_HEADLESS = os.getenv("OPENTABLE_WEB_HEADLESS", "true").lower() not in {"0", "false", "no"}
