@@ -27,6 +27,20 @@
   {% endif %}
 </div>
 
+<div class="card settings-group">
+  <div class="title">Diner details</div>
+  <p class="meta">Used for automatic checkout on providers that support guest booking, including OpenTable.</p>
+  <form method="post" action="/settings/diner-profile">
+    <div class="booking-controls">
+      <div class="field"><label class="label">First name</label><input class="input" name="first_name" value="{{ diner_profile.first_name if diner_profile else '' }}" autocomplete="given-name" required></div>
+      <div class="field"><label class="label">Last name</label><input class="input" name="last_name" value="{{ diner_profile.last_name if diner_profile else '' }}" autocomplete="family-name" required></div>
+    </div>
+    <div class="field"><label class="label">Email</label><input class="input" type="email" name="email" value="{{ diner_profile.email if diner_profile else (credentials.email if credentials else '') }}" autocomplete="email" required></div>
+    <div class="field"><label class="label">Phone</label><input class="input" type="tel" name="phone" value="{{ diner_profile.phone if diner_profile else '' }}" placeholder="+1 212 555 1234" autocomplete="tel" required></div>
+    <button class="cta" type="submit">{{ 'Update diner details' if diner_profile else 'Save diner details' }}</button>
+  </form>
+</div>
+
 <div class="section-title"><h2>Release intelligence</h2></div>
 {% if restaurants %}
   {% for r in restaurants %}
