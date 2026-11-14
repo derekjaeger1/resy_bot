@@ -6,8 +6,8 @@
   <p>Search now, then keep watching automatically if nothing is open.</p>
 </div>
 
-{% if not has_credentials %}
-<div class="notice">Connect your Resy account first. <a href="/settings">Open Settings →</a></div>
+{% if not can_create_watch %}
+<div class="notice">Connect Resy or add your diner details for OpenTable. <a href="/settings">Open Settings →</a></div>
 {% endif %}
 
 <form class="watch-form" method="post" action="/watches" autocomplete="off">
@@ -18,7 +18,8 @@
         <span class="search-icon">⌕</span>
         <input class="input restaurant-input" data-venue-search type="search" placeholder="Search restaurants" required>
       </div>
-      <input id="venue-id" type="hidden" name="venue_id" required>
+      <input id="venue-provider" type="hidden" name="provider" value="resy" required>
+      <input id="provider-venue-id" type="hidden" name="provider_venue_id" required>
       <input id="restaurant-name" type="hidden" name="restaurant_name" required>
       <input id="venue-slug" type="hidden" name="venue_slug">
       <div id="venue-results" class="search-results"></div>
@@ -31,9 +32,10 @@
             type="button"
             class="saved-pill"
             data-saved-venue
-            data-venue-id="{{ r.venue_id }}"
+            data-venue-id="{{ r.provider_venue_id or r.venue_id }}"
             data-venue-name="{{ r.name }}"
-            data-venue-slug="{{ r.url_slug or '' }}"
+            data-venue-provider="{{ r.provider or 'resy' }}"
+            data-venue-slug="{{ r.provider_slug or r.url_slug or '' }}"
           >{{ r.name }}</button>
         {% endfor %}
       </div>
@@ -84,10 +86,10 @@
 
   <div class="auto-book-note">
     <strong>Searches immediately</strong>
-    <span>If any table is already open inside your selected dates and time window, the app will try to book it right away. If not, it keeps watching automatically. Verified restaurant drops are armed automatically too.</span>
+    <span>If any qualifying table is already open, the app will try to book it immediately. If not, it keeps watching automatically across the reservation network that restaurant uses.</span>
   </div>
 
-  <button class="cta watch-cta" type="submit" {% if not has_credentials %}disabled{% endif %}>
+  <button class="cta watch-cta" type="submit" {% if not can_create_watch %}disabled{% endif %}>
     Find & Watch
   </button>
 </form>
