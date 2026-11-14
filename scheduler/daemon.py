@@ -3,6 +3,7 @@
 import logging
 import signal
 import sys
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 from typing import Optional, Callable
 
@@ -13,6 +14,13 @@ from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 
 from resy.models import ResyCredentials, TimePreference
 from resy.client import ResyClient
+from providers.opentable_web import (
+    OpenTableChallenge,
+    OpenTableUserActionRequired,
+    OpenTableWebClient,
+    OpenTableWebConfig,
+    OpenTableWebError,
+)
 from storage.database import Database
 from storage.models import ScheduledReservation, ReservationStatus, MonitorStatus
 from .sniper import ReservationSniper, SnipeResult
@@ -22,6 +30,9 @@ from config import (
     MONITOR_NEAR_INTERVAL_SECONDS,
     MONITOR_WEEK_INTERVAL_SECONDS,
     MONITOR_FAR_INTERVAL_SECONDS,
+    OPENTABLE_WEB_ENABLED,
+    OPENTABLE_WEB_HEADLESS,
+    OPENTABLE_WEB_PROFILE_DIR,
 )
 
 logger = logging.getLogger(__name__)
@@ -248,18 +259,12 @@ class SchedulerDaemon:
     # ==================== Cancellation Monitor ====================
 
     def _poll_monitors(self) -> None:
-        """Poll active monitors for cancellations and auto-book if found."""
-        credentials = self._get_credentials()
-        if not credentials:
-            logger.debug("No credentials, skipping monitor poll")
-            return
-
-        # Expire old monitors first
+        """Poll active monitors and route each one to its reservation provider."""
+        # Expire old monitors first.
         expired = self.db.expire_old_monitors()
         if expired:
             logger.info(f"Expired {expired} monitors with past target dates")
 
-        # Get active monitors
         monitors = self.db.get_active_monitors()
         if not monitors:
             return
@@ -268,18 +273,22 @@ class SchedulerDaemon:
 
         now = datetime.now()
         today = now.date()
+        credentials = self._get_credentials()
 
-        with ResyClient(credentials) as client:
+        # A single Resy client is reused for every Resy monitor in this tick.
+        # OpenTable uses its own provider transport only for OpenTable rows.
+        with ExitStack() as stack:
+            resy_client = (
+                stack.enter_context(ResyClient(credentials))
+                if credentials
+                else None
+            )
+
             for monitor in monitors:
-                # The list above is a snapshot. A previous row in the same
-                # watch group may have just booked and cancelled its siblings,
-                # so re-check active IDs before every attempt.
                 active_ids = {m.id for m in self.db.get_active_monitors()}
                 if monitor.id not in active_ids:
                     continue
 
-                # Adaptive cadence: today's/tomorrow's tables are competitive,
-                # while future dates can safely back off.
                 days_away = (monitor.target_date - today).days
                 if days_away <= 1:
                     min_interval = MONITOR_NEAR_INTERVAL_SECONDS
@@ -293,15 +302,40 @@ class SchedulerDaemon:
                     if elapsed < min_interval:
                         continue
 
+                restaurant = self.db.get_restaurant(monitor.restaurant_id)
+                if not restaurant:
+                    logger.warning(f"Monitor {monitor.id} has invalid restaurant_id")
+                    continue
+
+                provider = (getattr(restaurant, "provider", None) or "resy").lower()
+
                 try:
-                    self._check_monitor(client, monitor)
+                    if provider == "opentable":
+                        self._check_opentable_monitor(monitor, restaurant)
+                    elif provider == "resy":
+                        if not resy_client:
+                            self._cache_monitor_availability(
+                                monitor, [], error="Resy account is not connected."
+                            )
+                            continue
+                        self._check_monitor(resy_client, monitor)
+                    else:
+                        self._cache_monitor_availability(
+                            monitor, [], error=f"Unsupported provider: {provider}"
+                        )
                 except Exception as e:
-                    logger.error(f"Error checking monitor {monitor.id}: {e}")
+                    logger.error(
+                        f"Error checking {provider} monitor {monitor.id}: {e}"
+                    )
 
     @staticmethod
     def _slot_minutes(slot) -> int | None:
-        """Parse common Resy slot timestamp formats into minutes after midnight."""
-        raw = str(slot.time_slot).strip()
+        """Parse Resy or normalized provider slot time into minutes after midnight."""
+        if getattr(slot, "date_time", None) is not None:
+            dt = slot.date_time
+            return dt.hour * 60 + dt.minute
+
+        raw = str(getattr(slot, "time_slot", "") or "").strip()
         try:
             if " " in raw and "-" in raw.split(" ")[0]:
                 raw = raw.split(" ", 1)[1]
@@ -321,21 +355,86 @@ class SchedulerDaemon:
         error: str | None = None,
     ) -> None:
         """Cache the result of the actual watcher poll for the dashboard."""
+        cached_slots = []
+        for slot in matching_slots:
+            raw_time = getattr(slot, "time_slot", None)
+            if raw_time is None and getattr(slot, "date_time", None) is not None:
+                raw_time = slot.date_time.strftime("%H:%M")
+            cached_slots.append({
+                "date": monitor.target_date.isoformat(),
+                "time": str(raw_time or ""),
+                "type": (
+                    getattr(slot, "type", None)
+                    or getattr(slot, "table_type", None)
+                    or getattr(slot, "dining_area_name", None)
+                ),
+            })
+
         self._availability_cache[monitor.id] = {
             "checked_at": datetime.now(),
             "error": error,
-            "slots": [
-                {
-                    "date": monitor.target_date.isoformat(),
-                    "time": str(slot.time_slot),
-                    "type": (
-                        getattr(slot, "type", None)
-                        or getattr(slot, "table_type", None)
-                    ),
-                }
-                for slot in matching_slots
-            ],
+            "slots": cached_slots,
         }
+
+    def _finalize_monitor_success(
+        self,
+        monitor,
+        restaurant,
+        *,
+        booked_time: str,
+        booking_token: str = "",
+        provider: str = "resy",
+        provider_confirmation: str | None = None,
+        manage_reservation_url: str | None = None,
+    ) -> None:
+        """Mark the winning monitor successful and cancel sibling attempts."""
+        self.db.update_monitor_success(
+            monitor.id,
+            booked_time=booked_time,
+            resy_token=booking_token,
+        )
+
+        group_rows = [monitor]
+        if getattr(monitor, "watch_group_id", None):
+            group_rows = [
+                m for m in self.db.get_monitors()
+                if m.watch_group_id == monitor.watch_group_id
+            ]
+            for sibling in group_rows:
+                if (
+                    sibling.id != monitor.id
+                    and sibling.status == MonitorStatus.ACTIVE
+                ):
+                    self.db.cancel_monitor(sibling.id)
+
+        group_dates = {m.target_date for m in group_rows}
+        for reservation in self.db.get_pending_reservations():
+            if (
+                reservation.restaurant_id == monitor.restaurant_id
+                and reservation.party_size == monitor.party_size
+                and reservation.target_date in group_dates
+            ):
+                self.db.update_reservation_status(
+                    reservation.id,
+                    ReservationStatus.CANCELLED,
+                    result_message=(
+                        "Cancelled automatically because this watch already booked"
+                    ),
+                )
+                self.cancel_job(reservation.id)
+
+        self.db.add_history(
+            restaurant_name=restaurant.name,
+            venue_id=restaurant.venue_id,
+            target_date=monitor.target_date,
+            party_size=monitor.party_size,
+            success=True,
+            booked_time=booked_time,
+            resy_token=booking_token or None,
+            provider=provider,
+            provider_confirmation=provider_confirmation,
+            manage_reservation_url=manage_reservation_url,
+        )
 
     def _check_monitor(self, client: ResyClient, monitor) -> None:
         """Check a single monitor for availability and book if found."""
@@ -427,49 +526,12 @@ class SchedulerDaemon:
             result = client.book_reservation(details)
             resy_token = result.get("resy_token", "")
 
-            # Mark as success
-            self.db.update_monitor_success(
-                monitor.id,
-                booked_time=best_slot.time_slot,
-                resy_token=resy_token,
-            )
-
-            # First qualifying table wins across the entire user watch.
-            # If this row belongs to a multi-date group, cancel every sibling
-            # monitor and every paired future drop attempt immediately.
-            group_rows = [monitor]
-            if getattr(monitor, "watch_group_id", None):
-                group_rows = [
-                    m for m in self.db.get_monitors()
-                    if m.watch_group_id == monitor.watch_group_id
-                ]
-                for sibling in group_rows:
-                    if sibling.id != monitor.id and sibling.status == MonitorStatus.ACTIVE:
-                        self.db.cancel_monitor(sibling.id)
-
-            group_dates = {m.target_date for m in group_rows}
-            for reservation in self.db.get_pending_reservations():
-                if (
-                    reservation.restaurant_id == monitor.restaurant_id
-                    and reservation.party_size == monitor.party_size
-                    and reservation.target_date in group_dates
-                ):
-                    self.db.update_reservation_status(
-                        reservation.id,
-                        ReservationStatus.CANCELLED,
-                        result_message="Cancelled automatically because this watch already booked",
-                    )
-                    self.cancel_job(reservation.id)
-
-            # Add to history
-            self.db.add_history(
-                restaurant_name=restaurant.name,
-                venue_id=restaurant.venue_id,
-                target_date=monitor.target_date,
-                party_size=monitor.party_size,
-                success=True,
-                booked_time=best_slot.time_slot,
-                resy_token=resy_token,
+            self._finalize_monitor_success(
+                monitor,
+                restaurant,
+                booked_time=str(best_slot.time_slot),
+                booking_token=resy_token,
+                provider="resy",
             )
 
             logger.info(
@@ -480,6 +542,140 @@ class SchedulerDaemon:
         except Exception as e:
             logger.error(f"Failed to book cancellation slot: {e}")
             # Don't mark as failed - slot might have been taken, keep monitoring
+
+    def _check_opentable_monitor(self, monitor, restaurant) -> None:
+        """Check and auto-book an ordinary OpenTable table via consumer web flow."""
+        if not OPENTABLE_WEB_ENABLED:
+            self._cache_monitor_availability(
+                monitor, [], error="OpenTable internal transport is disabled."
+            )
+            return
+
+        profile = self.db.get_diner_profile()
+        if not profile:
+            self._cache_monitor_availability(
+                monitor,
+                [],
+                error="Add diner details in Settings before OpenTable can auto-book.",
+            )
+            return
+
+        rid = getattr(restaurant, "provider_venue_id", None)
+        if not rid:
+            self._cache_monitor_availability(
+                monitor, [], error="OpenTable restaurant ID is missing."
+            )
+            return
+
+        self.db.update_monitor_checked(monitor.id)
+        date_str = monitor.target_date.strftime("%Y-%m-%d")
+
+        client = OpenTableWebClient(
+            OpenTableWebConfig(
+                profile_dir=OPENTABLE_WEB_PROFILE_DIR,
+                headless=OPENTABLE_WEB_HEADLESS,
+            )
+        )
+
+        try:
+            availability = client.get_availability(
+                rid,
+                day=date_str,
+                party_size=monitor.party_size,
+                pivot_time=monitor.preferred_time,
+            )
+        except (OpenTableChallenge, OpenTableUserActionRequired) as exc:
+            self._cache_monitor_availability(monitor, [], error=str(exc))
+            return
+        except OpenTableWebError as exc:
+            self._cache_monitor_availability(monitor, [], error=str(exc))
+            return
+
+        start_minutes = None
+        end_minutes = None
+        try:
+            if monitor.time_start and monitor.time_end:
+                start_dt = datetime.strptime(monitor.time_start, "%H:%M")
+                end_dt = datetime.strptime(monitor.time_end, "%H:%M")
+                start_minutes = start_dt.hour * 60 + start_dt.minute
+                end_minutes = end_dt.hour * 60 + end_dt.minute
+        except Exception:
+            pass
+
+        matching_slots = []
+        for slot in availability.slots:
+            slot_minutes = self._slot_minutes(slot)
+            if slot_minutes is None:
+                continue
+            if start_minutes is not None and end_minutes is not None:
+                if not (start_minutes <= slot_minutes <= end_minutes):
+                    continue
+            matching_slots.append(slot)
+
+        self._cache_monitor_availability(monitor, matching_slots)
+        if not matching_slots:
+            return
+
+        matching_slots.sort(key=lambda slot: slot.date_time)
+        best_slot = matching_slots[0]
+        time_24h = best_slot.date_time.strftime("%H:%M")
+
+        logger.info(
+            f"MATCH FOUND! {restaurant.name} on {date_str} at {time_24h} "
+            f"via OpenTable - attempting to book..."
+        )
+
+        try:
+            result = client.book_visible_slot(
+                rid,
+                day=date_str,
+                time_24h=time_24h,
+                party_size=monitor.party_size,
+                first_name=profile.first_name,
+                last_name=profile.last_name,
+                email=profile.email,
+                phone=profile.phone,
+            )
+        except OpenTableUserActionRequired as exc:
+            self._cache_monitor_availability(
+                monitor,
+                matching_slots,
+                error=(
+                    f"OpenTable found {time_24h}, but needs user action: {exc}"
+                ),
+            )
+            return
+        except OpenTableChallenge as exc:
+            self._cache_monitor_availability(
+                monitor,
+                matching_slots,
+                error=f"OpenTable verification required: {exc}",
+            )
+            return
+        except Exception as exc:
+            logger.error(f"OpenTable booking failed for monitor {monitor.id}: {exc}")
+            self._cache_monitor_availability(
+                monitor,
+                matching_slots,
+                error=f"OpenTable booking attempt failed: {exc}",
+            )
+            return
+
+        confirmation = result.confirmation_number or ""
+        token = f"opentable:{confirmation}" if confirmation else "opentable:confirmed"
+        self._finalize_monitor_success(
+            monitor,
+            restaurant,
+            booked_time=time_24h,
+            booking_token=token,
+            provider="opentable",
+            provider_confirmation=confirmation or None,
+            manage_reservation_url=result.manage_reservation_url,
+        )
+        logger.info(
+            f"SUCCESS! Booked {restaurant.name} on {date_str} at {time_24h} "
+            f"via OpenTable."
+        )
 
     def get_watch_group_availability(self, group_id: str) -> dict:
         """Return cached results from watcher polls; never makes a Resy request."""
@@ -521,10 +717,6 @@ class SchedulerDaemon:
 
     def check_watch_group_now(self, group_id: str) -> dict:
         """Synchronously check/book a newly-created watch before returning UI control."""
-        credentials = self._get_credentials()
-        if not credentials:
-            return {"status": "error", "message": "Resy is not connected."}
-
         monitors = [
             m for m in self.db.get_active_monitors()
             if getattr(m, "watch_group_id", None) == group_id
@@ -533,12 +725,14 @@ class SchedulerDaemon:
         if not monitors:
             return {"status": "error", "message": "Watch could not be loaded."}
 
-        with ResyClient(credentials) as client:
-            for monitor in monitors:
-                self._check_monitor(client, monitor)
+        restaurant = self.db.get_restaurant(monitors[0].restaurant_id)
+        if not restaurant:
+            return {"status": "error", "message": "Restaurant could not be loaded."}
+        provider = (getattr(restaurant, "provider", None) or "resy").lower()
 
-                # Reload because _check_monitor may have booked this row and
-                # cancelled the rest of the group.
+        if provider == "opentable":
+            for monitor in monitors:
+                self._check_opentable_monitor(monitor, restaurant)
                 refreshed = next(
                     (m for m in self.db.get_monitors() if m.id == monitor.id),
                     None,
@@ -548,9 +742,30 @@ class SchedulerDaemon:
                         "status": "booked",
                         "date": refreshed.target_date.isoformat(),
                         "time": refreshed.booked_time,
+                        "provider": "opentable",
+                    }
+            return {"status": "watching", "provider": "opentable"}
+
+        credentials = self._get_credentials()
+        if not credentials:
+            return {"status": "error", "message": "Resy is not connected."}
+
+        with ResyClient(credentials) as client:
+            for monitor in monitors:
+                self._check_monitor(client, monitor)
+                refreshed = next(
+                    (m for m in self.db.get_monitors() if m.id == monitor.id),
+                    None,
+                )
+                if refreshed and refreshed.status == MonitorStatus.SUCCESS:
+                    return {
+                        "status": "booked",
+                        "date": refreshed.target_date.isoformat(),
+                        "time": refreshed.booked_time,
+                        "provider": "resy",
                     }
 
-        return {"status": "watching"}
+        return {"status": "watching", "provider": "resy"}
 
     def poll_monitors_now(self) -> None:
         """Queue an immediate monitor check without blocking the web request."""
