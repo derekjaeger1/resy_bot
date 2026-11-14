@@ -2,10 +2,10 @@
 {% block title %}My Watches{% endblock %}
 {% block content %}
 <section class="home-hero">
-  {% if not has_credentials %}
-    <h1>Connect Resy to start.</h1>
-    <p>Then search current availability, watch date ranges, and auto-book qualifying tables.</p>
-    <a class="cta" href="/settings">Connect Resy</a>
+  {% if not has_booking_profile %}
+    <h1>Set up booking to start.</h1>
+    <p>Search across reservation networks, watch date ranges, and auto-book qualifying tables.</p>
+    <a class="cta" href="/settings">Set up booking</a>
   {% else %}
     <div>
       <span class="eyebrow">RESERVATION WATCHER</span>
@@ -22,13 +22,13 @@
 
 <div class="section-title reservation-section-title">
   <div>
-    <span class="eyebrow">YOUR RESY</span>
+    <span class="eyebrow">YOUR TABLES</span>
     <h2>Upcoming reservations</h2>
   </div>
   <span class="reservation-count">{{ account_reservations|length }}</span>
 </div>
 
-{% if not live_resy_ok %}
+{% if has_credentials and not live_resy_ok %}
 <div class="notice">I couldn’t refresh your live Resy reservations right now. Your watches are still running.</div>
 {% endif %}
 
@@ -65,7 +65,7 @@
             <span class="reservation-date-full">{{ item.date_obj.strftime('%A, %B %-d') }}</span>
           </div>
 
-          {% if item.can_cancel %}
+          {% if item.provider == 'resy' and item.can_cancel %}
           <form method="post"
                 action="/resy-reservations/{{ r.reservation_id }}/cancel"
                 data-cancel-booking
@@ -74,8 +74,10 @@
                 data-time="{{ item.time_label }}">
             <button class="cancel-reservation-button" type="submit">Cancel</button>
           </form>
+          {% elif item.provider == 'opentable' and item.manage_url %}
+            <a class="cancel-reservation-button reservation-manage-link" href="{{ item.manage_url }}" target="_blank" rel="noopener">Manage</a>
           {% else %}
-            <span class="cancel-unavailable">Cancellation unavailable</span>
+            <span class="cancel-unavailable">Booked</span>
           {% endif %}
         </div>
 
@@ -90,7 +92,7 @@
 <div class="empty-state reservation-empty">
   <div class="empty-icon">◷</div>
   <h3>No upcoming reservations</h3>
-  <p>Your live Resy reservations will appear here automatically.</p>
+  <p>Upcoming reservations booked or connected through the app will appear here automatically.</p>
 </div>
 {% endif %}
 
