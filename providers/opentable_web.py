@@ -16,10 +16,10 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
-from urllib.parse import urlencode
+from typing import Any, Optional
+from urllib.parse import quote_plus, urlencode
 
-from .models import ProviderAvailability, ProviderSlot
+from .models import BookingResult, ProviderAvailability, ProviderSlot
 
 
 class OpenTableWebError(RuntimeError):
@@ -28,6 +28,14 @@ class OpenTableWebError(RuntimeError):
 
 class OpenTableChallenge(OpenTableWebError):
     pass
+
+
+class OpenTableUserActionRequired(OpenTableWebError):
+    """The normal consumer flow needs a user step we will not bypass."""
+
+    def __init__(self, reason: str, message: str):
+        super().__init__(message)
+        self.reason = reason
 
 
 @dataclass
@@ -89,6 +97,328 @@ class OpenTableWebClient:
         except Exception:
             return False
         return any(term in body for term in checks)
+
+    def search_restaurants(
+        self,
+        query: str,
+        *,
+        latitude: float = 40.7128,
+        longitude: float = -74.0060,
+        limit: int = 6,
+    ) -> list[dict[str, Any]]:
+        """Search OpenTable's visible consumer results and return restaurant IDs."""
+        q = (query or "").strip()
+        if len(q) < 2:
+            return []
+
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise OpenTableWebError("Playwright/Chromium is not installed.") from exc
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        params = {
+            "term": q,
+            "covers": "2",
+            "dateTime": f"{today}T19:00:00",
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+        }
+        url = f"{self.base_url}/s?{urlencode(params)}"
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=self.config.headless)
+            context = browser.new_context()
+            page = context.new_page()
+            page.set_default_timeout(self.config.timeout_ms)
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+                page.wait_for_timeout(1600)
+
+                if self._challenge_present(page):
+                    raise OpenTableChallenge(
+                        "OpenTable requires normal verification before search can continue."
+                    )
+
+                # Preferred path: restaurant result cards exposing a data-rid.
+                cards = page.locator("[data-rid]")
+                for idx in range(min(cards.count(), 60)):
+                    card = cards.nth(idx)
+                    rid = card.get_attribute("data-rid")
+                    if not rid or not str(rid).isdigit() or str(rid) in seen:
+                        continue
+                    try:
+                        text = " ".join((card.inner_text(timeout=400) or "").split())
+                    except Exception:
+                        text = ""
+                    if not text:
+                        continue
+                    name = text.split("  ")[0].strip() or text[:120]
+                    if q.lower() not in text.lower() and q.lower() not in name.lower():
+                        continue
+                    seen.add(str(rid))
+                    results.append({
+                        "id": str(rid),
+                        "name": name[:160],
+                        "neighborhood": "",
+                        "cuisine": "",
+                        "url_slug": "",
+                        "provider": self.provider,
+                    })
+                    if len(results) >= limit:
+                        break
+
+                # Fallback: reservation links often carry rid in the query string.
+                if len(results) < limit:
+                    anchors = page.locator("a[href]")
+                    for idx in range(min(anchors.count(), 250)):
+                        a = anchors.nth(idx)
+                        href = a.get_attribute("href") or ""
+                        match = re.search(r"[?&]rid=(\d+)", href)
+                        if not match:
+                            continue
+                        rid = match.group(1)
+                        if rid in seen:
+                            continue
+                        try:
+                            text = " ".join((a.inner_text(timeout=250) or "").split())
+                        except Exception:
+                            text = ""
+                        if not text or q.lower() not in text.lower():
+                            continue
+                        seen.add(rid)
+                        results.append({
+                            "id": rid,
+                            "name": text[:160],
+                            "neighborhood": "",
+                            "cuisine": "",
+                            "url_slug": href,
+                            "provider": self.provider,
+                        })
+                        if len(results) >= limit:
+                            break
+            finally:
+                context.close()
+                browser.close()
+
+        return results
+
+    @staticmethod
+    def _fill_first(page, selectors: list[str], value: str) -> bool:
+        for selector in selectors:
+            try:
+                node = page.locator(selector).first
+                if node.count() and node.is_visible():
+                    node.fill(value)
+                    return True
+            except Exception:
+                continue
+        return False
+
+    def book_visible_slot(
+        self,
+        rid: int | str,
+        *,
+        day: str,
+        time_24h: str,
+        party_size: int,
+        first_name: str,
+        last_name: str,
+        email: str,
+        phone: str,
+    ) -> BookingResult:
+        """Book an ordinary table through OpenTable's visible consumer checkout.
+
+        No anti-bot bypass is attempted. Secured/prepaid flows and verification
+        challenges are surfaced as user-action-required so the watch can stay active.
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise OpenTableWebError("Playwright/Chromium is not installed.") from exc
+
+        profile = Path(self.config.profile_dir)
+        profile.mkdir(parents=True, exist_ok=True)
+        url = self.booking_url(
+            rid,
+            day=day,
+            time_24h=time_24h,
+            party_size=party_size,
+        )
+        target_label = datetime.strptime(time_24h, "%H:%M").strftime("%-I:%M %p")
+
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=str(profile),
+                headless=self.config.headless,
+            )
+            page = context.pages[0] if context.pages else context.new_page()
+            page.set_default_timeout(self.config.timeout_ms)
+
+            try:
+                page.goto(url, wait_until="domcontentloaded")
+                page.wait_for_timeout(1200)
+
+                if self._challenge_present(page):
+                    raise OpenTableChallenge(
+                        "OpenTable requested human verification for this session."
+                    )
+
+                # If the hand-off lands on a slot list, select the exact requested time.
+                time_re = re.compile(
+                    rf"^\s*{re.escape(target_label)}(?:\s|$)",
+                    re.IGNORECASE,
+                )
+                clicked_time = False
+                for role in ("button", "link"):
+                    try:
+                        candidates = page.get_by_role(role, name=time_re)
+                        if candidates.count():
+                            candidates.first.click()
+                            clicked_time = True
+                            page.wait_for_timeout(900)
+                            break
+                    except Exception:
+                        continue
+
+                if self._challenge_present(page):
+                    raise OpenTableChallenge(
+                        "OpenTable requested human verification during checkout."
+                    )
+
+                body = ""
+                try:
+                    body = (page.locator("body").inner_text(timeout=1500) or "").lower()
+                except Exception:
+                    pass
+
+                # We deliberately do not auto-submit a financial commitment in the
+                # browser fallback. Official API mode can support those later.
+                payment_terms = (
+                    "credit card required",
+                    "card required",
+                    "deposit",
+                    "prepaid",
+                    "pre-pay",
+                    "non-refundable",
+                )
+                if any(term in body for term in payment_terms):
+                    raise OpenTableUserActionRequired(
+                        "payment",
+                        "This OpenTable reservation requires a card, deposit, or prepayment.",
+                    )
+
+                # Prefer guest checkout when OpenTable offers it.
+                for label in ("Continue as guest", "Book as guest", "Guest"):
+                    try:
+                        guest = page.get_by_role("button", name=re.compile(label, re.I))
+                        if guest.count() and guest.first.is_visible():
+                            guest.first.click()
+                            page.wait_for_timeout(500)
+                            break
+                    except Exception:
+                        continue
+
+                filled_first = self._fill_first(page, [
+                    "input[autocomplete='given-name']",
+                    "input[name*='first' i]",
+                    "input[id*='first' i]",
+                ], first_name)
+                filled_last = self._fill_first(page, [
+                    "input[autocomplete='family-name']",
+                    "input[name*='last' i]",
+                    "input[id*='last' i]",
+                ], last_name)
+                filled_email = self._fill_first(page, [
+                    "input[type='email']",
+                    "input[autocomplete='email']",
+                    "input[name*='email' i]",
+                ], email)
+                filled_phone = self._fill_first(page, [
+                    "input[type='tel']",
+                    "input[autocomplete='tel']",
+                    "input[name*='phone' i]",
+                ], phone)
+
+                if not all((filled_first, filled_last, filled_email, filled_phone)):
+                    body_now = ""
+                    try:
+                        body_now = (page.locator("body").inner_text(timeout=1000) or "").lower()
+                    except Exception:
+                        pass
+                    if "sign in" in body_now or "log in" in body_now:
+                        raise OpenTableUserActionRequired(
+                            "login",
+                            "OpenTable requires an authenticated session for this checkout.",
+                        )
+                    raise OpenTableWebError(
+                        "OpenTable checkout fields were not available in the expected guest flow."
+                    )
+
+                confirm_re = re.compile(
+                    r"(complete|confirm|make|book|reserve).*(reservation|table)|"
+                    r"(reservation|table).*(complete|confirm|book|reserve)",
+                    re.IGNORECASE,
+                )
+                confirm = page.get_by_role("button", name=confirm_re)
+                if not confirm.count():
+                    raise OpenTableWebError("Could not find OpenTable's confirmation button.")
+
+                confirm.first.click()
+                page.wait_for_timeout(2200)
+
+                if self._challenge_present(page):
+                    raise OpenTableChallenge(
+                        "OpenTable requested human verification when confirming the reservation."
+                    )
+
+                confirmation_text = ""
+                try:
+                    confirmation_text = page.locator("body").inner_text(timeout=1500) or ""
+                except Exception:
+                    pass
+
+                lower = confirmation_text.lower()
+                success_terms = (
+                    "reservation confirmed",
+                    "you're booked",
+                    "you’re booked",
+                    "booking confirmed",
+                    "reservation is confirmed",
+                )
+                if not any(term in lower for term in success_terms):
+                    raise OpenTableWebError(
+                        "OpenTable did not return a visible booking confirmation; watch remains active."
+                    )
+
+                conf_match = re.search(
+                    r"confirmation(?:\s+number)?\s*[:#]?\s*([A-Z0-9-]{4,})",
+                    confirmation_text,
+                    re.IGNORECASE,
+                )
+                confirmation = conf_match.group(1) if conf_match else None
+
+                return BookingResult(
+                    provider=self.provider,
+                    restaurant_id=str(rid),
+                    confirmation_number=confirmation,
+                    date_time=datetime.strptime(
+                        f"{day} {time_24h}", "%Y-%m-%d %H:%M"
+                    ),
+                    party_size=party_size,
+                    manage_reservation_url=page.url,
+                    message="Booked through OpenTable consumer checkout",
+                    raw={
+                        "source": "consumer-web",
+                        "clicked_time": clicked_time,
+                        "checkout_url": page.url,
+                    },
+                )
+            finally:
+                context.close()
 
     def get_availability(
         self,
