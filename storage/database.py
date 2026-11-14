@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .models import (
     Base,
     Credentials,
+    DinerProfile,
     Restaurant,
     ScheduledReservation,
     ReservationHistory,
@@ -54,6 +55,9 @@ class Database:
             "reservation_history": {
                 "cancelled_at": "DATETIME",
                 "cancellation_message": "TEXT",
+                "provider": "VARCHAR(32) NOT NULL DEFAULT 'resy'",
+                "provider_confirmation": "VARCHAR(255)",
+                "manage_reservation_url": "VARCHAR(1000)",
             },
         }
         with self.engine.begin() as conn:
@@ -111,6 +115,40 @@ class Database:
         with self.get_session() as session:
             session.query(Credentials).delete()
             session.commit()
+
+    # ==================== Diner profile ====================
+
+    def get_diner_profile(self) -> Optional[DinerProfile]:
+        """Get the single checkout profile, if configured."""
+        with self.get_session() as session:
+            return session.query(DinerProfile).first()
+
+    def save_diner_profile(
+        self,
+        first_name: str,
+        last_name: str,
+        email: str,
+        phone: str,
+    ) -> DinerProfile:
+        """Save or update provider-neutral checkout details."""
+        with self.get_session() as session:
+            profile = session.query(DinerProfile).first()
+            if profile:
+                profile.first_name = first_name
+                profile.last_name = last_name
+                profile.email = email
+                profile.phone = phone
+            else:
+                profile = DinerProfile(
+                    first_name=first_name,
+                    last_name=last_name,
+                    email=email,
+                    phone=phone,
+                )
+                session.add(profile)
+            session.commit()
+            session.refresh(profile)
+            return profile
 
     # ==================== Restaurants ====================
 
@@ -353,12 +391,18 @@ class Database:
         booked_time: Optional[str] = None,
         resy_token: Optional[str] = None,
         error_message: Optional[str] = None,
+        provider: str = "resy",
+        provider_confirmation: Optional[str] = None,
+        manage_reservation_url: Optional[str] = None,
     ) -> ReservationHistory:
         """Add a reservation attempt to history."""
         with self.get_session() as session:
             history = ReservationHistory(
                 restaurant_name=restaurant_name,
                 venue_id=venue_id,
+                provider=(provider or "resy").lower(),
+                provider_confirmation=provider_confirmation,
+                manage_reservation_url=manage_reservation_url,
                 target_date=target_date,
                 party_size=party_size,
                 attempted_at=datetime.now(),
