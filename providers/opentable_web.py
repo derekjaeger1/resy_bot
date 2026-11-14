@@ -156,7 +156,21 @@ class OpenTableWebClient:
                         text = ""
                     if not text:
                         continue
-                    name = text.split("  ")[0].strip() or text[:120]
+                    name = ""
+                    try:
+                        heading = card.locator("h1,h2,h3,[role='heading']").first
+                        if heading.count():
+                            name = " ".join((heading.inner_text(timeout=250) or "").split())
+                    except Exception:
+                        pass
+                    if not name:
+                        try:
+                            first_link = card.locator("a").first
+                            if first_link.count():
+                                name = " ".join((first_link.inner_text(timeout=250) or "").split())
+                        except Exception:
+                            pass
+                    name = (name or text)[:160]
                     if q.lower() not in text.lower() and q.lower() not in name.lower():
                         continue
                     seen.add(str(rid))
