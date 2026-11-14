@@ -1,6 +1,7 @@
 """Mobile-first FastAPI web app for Resy Bot."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -25,8 +26,17 @@ from config import (
     COOKIE_SECURE,
     DATA_DIR,
     SESSION_COOKIE_NAME,
+    OPENTABLE_WEB_ENABLED,
+    OPENTABLE_WEB_HEADLESS,
+    OPENTABLE_WEB_PROFILE_DIR,
 )
 from resy.client import AuthenticationError, ResyClient, login as resy_login, search_venues
+from providers.opentable_web import (
+    OpenTableChallenge,
+    OpenTableWebClient,
+    OpenTableWebConfig,
+    OpenTableWebError,
+)
 from release_rules import resolve_release_rule
 from resy.models import ResyCredentials
 from scheduler.daemon import SchedulerDaemon
@@ -334,7 +344,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         # reservations. This intentionally includes reservations booked
         # outside this app.
         history = db.get_history(limit=200)
-        successful_history = [h for h in history if h.success and h.resy_token]
+        successful_history = [h for h in history if h.success]
 
         live_reservations = []
         live_resy_ok = False
@@ -391,6 +401,36 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "time_label": clock(live.get("time")),
                 "booked_by_sniper": history_match is not None,
                 "can_cancel": bool(live.get("reservation_id") and live.get("resy_token")),
+                "provider": "resy",
+                "manage_url": None,
+            })
+
+        # OpenTable consumer-web bookings are tracked locally until official
+        # account/reservation APIs are connected.
+        for h in successful_history:
+            if (getattr(h, "provider", None) or "resy").lower() != "opentable":
+                continue
+            if h.cancelled_at or h.target_date < today:
+                continue
+            live = {
+                "venue_name": h.restaurant_name,
+                "neighborhood": "",
+                "party_size": h.party_size,
+                "table_type": None,
+                "reservation_id": None,
+                "resy_token": None,
+                "cancellation_cutoff": None,
+                "time": h.booked_time,
+            }
+            account_reservations.append({
+                "live": live,
+                "history": h,
+                "date_obj": h.target_date,
+                "time_label": clock(h.booked_time),
+                "booked_by_sniper": True,
+                "can_cancel": False,
+                "provider": "opentable",
+                "manage_url": getattr(h, "manage_reservation_url", None),
             })
 
         account_reservations.sort(
@@ -468,6 +508,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 restaurant_map=restaurant_map,
                 pref_map=pref_map,
                 has_credentials=bool(creds),
+                has_diner_profile=bool(db.get_diner_profile()),
+                has_booking_profile=bool(creds or db.get_diner_profile()),
                 credential_email=creds.email if creds else None,
                 has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
                 now=now_local_naive(),
@@ -494,6 +536,10 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 time_slots=time_slots,
                 today=now_local_naive().date().isoformat(),
                 has_credentials=bool(db.get_credentials()),
+                has_diner_profile=bool(db.get_diner_profile()),
+                can_create_watch=bool(
+                    db.get_credentials() or db.get_diner_profile()
+                ),
             ),
         )
 
@@ -502,14 +548,80 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         q = q.strip()
         if len(q) < 2:
             return []
-        results = search_venues(q)[:8]
-        return [{
-            "id": item.get("id"),
-            "name": item.get("name") or "Unknown",
-            "neighborhood": item.get("neighborhood") or "",
-            "cuisine": item.get("cuisine") or "",
-            "url_slug": item.get("url_slug") or "",
-        } for item in results if item.get("id")]
+
+        async def _resy_results():
+            try:
+                return await asyncio.to_thread(search_venues, q)
+            except Exception:
+                return []
+
+        async def _opentable_results():
+            if not OPENTABLE_WEB_ENABLED or len(q) < 3:
+                return []
+            try:
+                client = OpenTableWebClient(
+                    OpenTableWebConfig(
+                        profile_dir=OPENTABLE_WEB_PROFILE_DIR,
+                        headless=OPENTABLE_WEB_HEADLESS,
+                    )
+                )
+                return await asyncio.to_thread(client.search_restaurants, q)
+            except (OpenTableChallenge, OpenTableWebError, Exception):
+                return []
+
+        resy_results, opentable_results = await asyncio.gather(
+            _resy_results(),
+            _opentable_results(),
+        )
+
+        merged = []
+        seen = set()
+
+        for item in (resy_results or [])[:8]:
+            venue_id = item.get("id")
+            if not venue_id:
+                continue
+            key = ("resy", str(venue_id))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({
+                "id": str(venue_id),
+                "provider": "resy",
+                "name": item.get("name") or "Unknown",
+                "neighborhood": item.get("neighborhood") or "",
+                "cuisine": item.get("cuisine") or "",
+                "url_slug": item.get("url_slug") or "",
+            })
+
+        for item in (opentable_results or [])[:6]:
+            venue_id = item.get("id")
+            if not venue_id:
+                continue
+            key = ("opentable", str(venue_id))
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({
+                "id": str(venue_id),
+                "provider": "opentable",
+                "name": item.get("name") or "Unknown",
+                "neighborhood": item.get("neighborhood") or "",
+                "cuisine": item.get("cuisine") or "",
+                "url_slug": item.get("url_slug") or "",
+            })
+
+        # Keep search provider-neutral to the user; ranking is primarily by
+        # how closely the restaurant name matches the typed query.
+        q_lower = q.lower()
+        merged.sort(
+            key=lambda item: (
+                0 if item["name"].lower().startswith(q_lower) else 1,
+                0 if q_lower in item["name"].lower() else 1,
+                item["name"].lower(),
+            )
+        )
+        return merged[:10]
 
     @app.get("/api/watch-groups/{group_id}/availability")
     async def watch_group_availability(group_id: str):
@@ -548,7 +660,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     @app.post("/watches")
     @app.post("/snipes")
     async def create_watch(
-        venue_id: int = Form(...),
+        provider: str = Form("resy"),
+        provider_venue_id: str = Form(...),
         restaurant_name: str = Form(...),
         venue_slug: str = Form(""),
         date_start: str = Form(...),
@@ -557,8 +670,26 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         time_start: str = Form(...),
         time_end: str = Form(...),
     ):
-        if not db.get_credentials():
-            return _redirect("/settings", error="Connect your Resy account before creating a watch.")
+        provider = (provider or "resy").strip().lower()
+        provider_venue_id = provider_venue_id.strip()
+
+        if provider not in {"resy", "opentable"}:
+            raise HTTPException(400, "Unsupported reservation provider")
+        if not provider_venue_id:
+            raise HTTPException(400, "Restaurant ID is missing")
+        if provider == "resy" and not db.get_credentials():
+            return _redirect(
+                "/settings",
+                error="Connect your Resy account before creating this watch.",
+            )
+        if provider == "opentable" and not db.get_diner_profile():
+            return _redirect(
+                "/settings",
+                error=(
+                    "Add your diner details once before OpenTable can auto-book "
+                    "tables for you."
+                ),
+            )
         if party_size < 1 or party_size > 20:
             raise HTTPException(400, "Invalid party size")
 
@@ -574,30 +705,66 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         if start_date < today:
             return _redirect("/new", error="The first watch date has already passed.")
         if end_date < start_date:
-            return _redirect("/new", error="End date must be on or after the start date.")
+            return _redirect(
+                "/new", error="End date must be on or after the start date."
+            )
         date_count = (end_date - start_date).days + 1
         if date_count > 14:
-            return _redirect("/new", error="A single watch can cover up to 14 consecutive dates.")
+            return _redirect(
+                "/new", error="A single watch can cover up to 14 consecutive dates."
+            )
         if end_minutes < start_minutes:
-            return _redirect("/new", error="End time must be later than the start time.")
+            return _redirect(
+                "/new", error="End time must be later than the start time."
+            )
 
         midpoint = (start_minutes + end_minutes) // 2
         window = max(midpoint - start_minutes, end_minutes - midpoint)
         preferred_time = _hhmm(midpoint)
         group_id = uuid.uuid4().hex[:16]
 
-        # Resolve the restaurant's release rule automatically. User never
-        # enters or guesses it.
-        rule = resolve_release_rule(restaurant_name.strip(), venue_slug.strip() or None)
-        restaurant = db.get_restaurant_by_venue_id(venue_id)
+        restaurant = db.get_restaurant_by_provider(provider, provider_venue_id)
+
+        if provider == "resy":
+            rule = resolve_release_rule(
+                restaurant_name.strip(),
+                venue_slug.strip() or None,
+            )
+            release_verified = bool(rule.verified and rule.snipeable)
+            release_source = rule.source
+            release_note = rule.note
+            release_time_value = rule.release_time or dt_time(0, 0)
+            release_days = rule.days_in_advance or 14
+        else:
+            rule = None
+            release_verified = False
+            release_source = "OpenTable consumer availability"
+            release_note = (
+                "Continuous OpenTable watch active. Exact drop timing is not "
+                "assumed unless separately verified."
+            )
+            release_time_value = dt_time(0, 0)
+            release_days = 14
+
         updates = {
             "name": restaurant_name.strip(),
+            "provider": provider,
+            "provider_venue_id": provider_venue_id,
+            "provider_slug": venue_slug.strip() or None,
             "url_slug": venue_slug.strip() or None,
-            "release_verified": bool(rule.verified and rule.snipeable),
-            "release_source": rule.source,
-            "release_note": rule.note,
+            "release_verified": release_verified,
+            "release_source": release_source,
+            "release_note": release_note,
         }
-        if rule.verified and rule.snipeable and rule.days_in_advance is not None and rule.release_time:
+
+        if (
+            provider == "resy"
+            and rule
+            and rule.verified
+            and rule.snipeable
+            and rule.days_in_advance is not None
+            and rule.release_time
+        ):
             updates.update({
                 "days_in_advance": rule.days_in_advance,
                 "release_time": rule.release_time,
@@ -607,24 +774,39 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         if restaurant:
             restaurant = db.update_restaurant(restaurant.id, **updates)
         else:
+            if provider == "resy":
+                try:
+                    legacy_venue_id = int(provider_venue_id)
+                except ValueError:
+                    raise HTTPException(400, "Invalid Resy venue ID")
+            else:
+                # Keep the original unique integer venue_id column collision-free
+                # while provider_venue_id stores OpenTable's real RID.
+                digest = hashlib.sha256(
+                    f"{provider}:{provider_venue_id}".encode("utf-8")
+                ).hexdigest()
+                legacy_venue_id = -int(digest[:12], 16)
+
             restaurant = db.add_restaurant(
-                venue_id=venue_id,
+                venue_id=legacy_venue_id,
+                provider=provider,
+                provider_venue_id=provider_venue_id,
+                provider_slug=venue_slug.strip() or None,
                 name=restaurant_name.strip(),
-                release_time=rule.release_time or dt_time(0, 0),
-                days_in_advance=rule.days_in_advance or 14,
+                release_time=release_time_value,
+                days_in_advance=release_days,
                 release_pattern=ReleasePattern.DAILY,
                 city="New York",
-                release_verified=bool(rule.verified and rule.snipeable),
-                release_source=rule.source,
-                release_note=rule.note,
+                release_verified=release_verified,
+                release_source=release_source,
+                release_note=release_note,
                 url_slug=venue_slug.strip() or None,
             )
 
-        created_monitors = []
         drop_count = 0
         current_date = start_date
         while current_date <= end_date:
-            monitor = db.add_monitor(
+            db.add_monitor(
                 restaurant_id=restaurant.id,
                 target_date=current_date,
                 party_size=party_size,
@@ -635,9 +817,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 time_start=time_start,
                 time_end=time_end,
             )
-            created_monitors.append(monitor)
 
-            if _has_verified_drop_rule(restaurant):
+            if provider == "resy" and _has_verified_drop_rule(restaurant):
                 snipe_at = db.calculate_snipe_time(restaurant, current_date)
                 if snipe_at > now_local_naive():
                     reservation = db.schedule_reservation(
@@ -656,9 +837,6 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
             current_date += timedelta(days=1)
 
-        # Search synchronously before returning the dashboard. The user should
-        # never see an ambiguous "checking" state when the answer is already
-        # available from Resy.
         immediate = daemon.check_watch_group_now(group_id)
 
         date_label = (
@@ -671,27 +849,41 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         if immediate.get("status") == "booked":
             raw_booked = str(immediate.get("time") or "")
             try:
-                booked_clock = raw_booked.split(" ")[1][:5] if " " in raw_booked and "-" in raw_booked.split(" ")[0] else raw_booked[:5]
+                booked_clock = (
+                    raw_booked.split(" ")[1][:5]
+                    if " " in raw_booked and "-" in raw_booked.split(" ")[0]
+                    else raw_booked[:5]
+                )
                 booked_label = _clock_label(booked_clock)
             except Exception:
                 booked_label = raw_booked
-            booked_date = datetime.strptime(immediate["date"], "%Y-%m-%d").strftime("%a, %b %-d")
+            booked_date = datetime.strptime(
+                immediate["date"], "%Y-%m-%d"
+            ).strftime("%a, %b %-d")
             return _redirect(
                 "/",
-                message=f"BOOKED — {restaurant.name}, {booked_date} at {booked_label} for {party_size}.",
+                message=(
+                    f"BOOKED — {restaurant.name}, {booked_date} at "
+                    f"{booked_label} for {party_size}."
+                ),
             )
 
         if immediate.get("status") == "error":
             return _redirect(
                 "/",
-                error=f"Could not complete the immediate Resy check: {immediate.get('message', 'unknown error')}. The watch remains saved.",
+                error=(
+                    f"Could not complete the immediate availability check: "
+                    f"{immediate.get('message', 'unknown error')}. "
+                    "The watch remains saved."
+                ),
             )
 
         if drop_count:
             message = (
-                f"No qualifying table is available right now for {restaurant.name}, {date_label}, "
-                f"{time_label}. Watching continuously; {drop_count} verified drop "
-                f"{'attempt is' if drop_count == 1 else 'attempts are'} also armed."
+                f"No qualifying table is available right now for {restaurant.name}, "
+                f"{date_label}, {time_label}. Watching continuously; {drop_count} "
+                f"verified drop {'attempt is' if drop_count == 1 else 'attempts are'} "
+                "also armed."
             )
         else:
             message = (
@@ -887,6 +1079,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
     @app.get("/settings", response_class=HTMLResponse)
     async def settings(request: Request):
         creds = db.get_credentials()
+        profile = db.get_diner_profile()
         restaurants = db.get_restaurants()
         return templates.TemplateResponse(
             request=request,
@@ -895,10 +1088,38 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 request,
                 "settings",
                 credentials=creds,
+                diner_profile=profile,
                 restaurants=restaurants,
                 data_dir=str(DATA_DIR),
                 has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
             ),
+        )
+
+    @app.post("/settings/diner-profile")
+    async def settings_diner_profile(
+        first_name: str = Form(...),
+        last_name: str = Form(...),
+        email: str = Form(...),
+        phone: str = Form(...),
+    ):
+        first_name = first_name.strip()
+        last_name = last_name.strip()
+        email = email.strip()
+        phone = phone.strip()
+        if not all((first_name, last_name, email, phone)):
+            return _redirect(
+                "/settings",
+                error="Name, email, and phone are required for auto-booking.",
+            )
+        db.save_diner_profile(
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            phone=phone,
+        )
+        return _redirect(
+            "/settings",
+            message="Diner details saved for automatic checkout.",
         )
 
     @app.post("/settings/resy-login")
