@@ -187,6 +187,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         # Refresh restaurant-specific release intelligence from our verified
         # registry / public Resy listing parser. Never invent a release time.
         for restaurant in db.get_restaurants():
+            if (getattr(restaurant, "provider", None) or "resy").lower() != "resy":
+                continue
             rule = resolve_release_rule(restaurant.name, getattr(restaurant, "url_slug", None))
             updates = {
                 "release_verified": bool(rule.verified and rule.snipeable),
@@ -563,6 +565,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                     OpenTableWebConfig(
                         profile_dir=OPENTABLE_WEB_PROFILE_DIR,
                         headless=OPENTABLE_WEB_HEADLESS,
+                        timeout_ms=8000,
                     )
                 )
                 return await asyncio.to_thread(client.search_restaurants, q)
