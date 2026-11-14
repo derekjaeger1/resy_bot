@@ -3,13 +3,15 @@ function setupVenueSearch(){
   if(!input)return;
   const results=document.getElementById('venue-results');
   const picked=document.getElementById('venue-picked');
-  const venueId=document.getElementById('venue-id');
+  const venueProvider=document.getElementById('venue-provider');
+  const providerVenueId=document.getElementById('provider-venue-id');
   const venueName=document.getElementById('restaurant-name');
   const venueSlug=document.getElementById('venue-slug');
   let timer;
 
-  function chooseVenue(id,name,slug=''){
-    venueId.value=id;
+  function chooseVenue(id,name,slug='',provider='resy'){
+    providerVenueId.value=id;
+    venueProvider.value=provider||'resy';
     venueName.value=name;
     if(venueSlug)venueSlug.value=slug||'';
     input.value=name;
@@ -21,7 +23,7 @@ function setupVenueSearch(){
   input.addEventListener('input',()=>{
     clearTimeout(timer);
     const q=input.value.trim();
-    venueId.value='';venueName.value='';if(venueSlug)venueSlug.value='';
+    providerVenueId.value='';venueProvider.value='resy';venueName.value='';if(venueSlug)venueSlug.value='';
     picked.style.display='none';
     if(q.length<2){results.style.display='none';return}
 
@@ -36,17 +38,17 @@ function setupVenueSearch(){
           el.innerHTML='<b></b><small></small>';
           el.querySelector('b').textContent=v.name;
           el.querySelector('small').textContent=[v.neighborhood,v.cuisine].filter(Boolean).join(' · ');
-          el.onclick=()=>chooseVenue(v.id,v.name,v.url_slug||'');
+          el.onclick=()=>chooseVenue(v.id,v.name,v.url_slug||'',v.provider||'resy');
           results.appendChild(el);
         });
         results.style.display=items.length?'block':'none';
       }catch(e){results.style.display='none'}
-    },220);
+    },450);
   });
 
   document.querySelectorAll('[data-saved-venue]').forEach(b=>{
     b.addEventListener('click',()=>chooseVenue(
-      b.dataset.venueId,b.dataset.venueName,b.dataset.venueSlug||''
+      b.dataset.venueId,b.dataset.venueName,b.dataset.venueSlug||'',b.dataset.venueProvider||'resy'
     ));
   });
 }
