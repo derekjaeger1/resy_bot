@@ -51,6 +51,19 @@ class Credentials(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class DinerProfile(Base):
+    """Provider-neutral diner details used for guest checkout flows."""
+    __tablename__ = "diner_profile"
+
+    id = Column(Integer, primary_key=True)
+    first_name = Column(String(100), nullable=False)
+    last_name = Column(String(100), nullable=False)
+    email = Column(String(255), nullable=False)
+    phone = Column(String(50), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Restaurant(Base):
     """Store restaurant/venue information."""
     __tablename__ = "restaurants"
@@ -147,6 +160,9 @@ class ReservationHistory(Base):
     success = Column(Boolean, nullable=False)
     booked_time = Column(String(50), nullable=True)
     resy_token = Column(String(255), nullable=True)
+    provider = Column(String(32), nullable=False, default="resy")
+    provider_confirmation = Column(String(255), nullable=True)
+    manage_reservation_url = Column(String(1000), nullable=True)
     error_message = Column(Text, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
     cancellation_message = Column(Text, nullable=True)
