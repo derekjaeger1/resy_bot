@@ -72,6 +72,21 @@ class Database:
                             f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"
                         )
 
+            # Backfill provider identity for rows created before multi-provider support.
+            conn.exec_driver_sql(
+                "UPDATE restaurants SET provider = 'resy' "
+                "WHERE provider IS NULL OR provider = ''"
+            )
+            conn.exec_driver_sql(
+                "UPDATE restaurants SET provider_venue_id = CAST(venue_id AS TEXT) "
+                "WHERE (provider_venue_id IS NULL OR provider_venue_id = '') "
+                "AND provider = 'resy'"
+            )
+            conn.exec_driver_sql(
+                "UPDATE restaurants SET provider_slug = url_slug "
+                "WHERE provider_slug IS NULL AND provider = 'resy'"
+            )
+
     def get_session(self) -> Session:
         """Get a new database session."""
         return self.SessionLocal()
