@@ -19,6 +19,8 @@ RESY_API_BASE = "https://api.resy.com"
 REQUEST_TIMEOUT_SECONDS = 15
 USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15"
 RESY_API_KEY = "VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5"
+# Account-protection kill switch. Defaults OFF after Resy's final warning.
+RESY_AUTOMATION_ENABLED = os.getenv("RESY_AUTOMATION_ENABLED", "false").lower() in {"1", "true", "yes"}
 
 SNIPE_WINDOW_SECONDS = int(os.getenv("SNIPE_WINDOW_SECONDS", "10"))
 SNIPE_EARLY_WAKE_SECONDS = int(os.getenv("SNIPE_EARLY_WAKE_SECONDS", "5"))
