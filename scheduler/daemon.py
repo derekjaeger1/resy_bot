@@ -33,6 +33,7 @@ from config import (
     OPENTABLE_WEB_ENABLED,
     OPENTABLE_WEB_HEADLESS,
     OPENTABLE_WEB_PROFILE_DIR,
+    RESY_AUTOMATION_ENABLED,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,9 @@ class SchedulerDaemon:
         )
 
     def _get_credentials(self) -> Optional[ResyCredentials]:
-        """Get credentials from database."""
+        """Get credentials from database only when Resy automation is enabled."""
+        if not RESY_AUTOMATION_ENABLED:
+            return None
         if self._credentials:
             return self._credentials
 
@@ -89,6 +92,9 @@ class SchedulerDaemon:
 
     def _execute_snipe(self, reservation_id: int) -> None:
         """Execute a snipe job."""
+        if not RESY_AUTOMATION_ENABLED:
+            logger.warning("Resy automation is paused; scheduled snipe skipped.")
+            return
         credentials = self._get_credentials()
         if not credentials:
             logger.error("No credentials configured, cannot snipe")
@@ -133,6 +139,12 @@ class SchedulerDaemon:
         """
         job_id = f"snipe_{reservation.id}"
 
+        if not RESY_AUTOMATION_ENABLED:
+            logger.warning(
+                f"Resy automation is paused; not scheduling {job_id}."
+            )
+            return job_id
+
         # Remove existing job if any
         if self.scheduler.get_job(job_id):
             self.scheduler.remove_job(job_id)
@@ -167,6 +179,10 @@ class SchedulerDaemon:
         Returns:
             Number of jobs scheduled
         """
+        if not RESY_AUTOMATION_ENABLED:
+            logger.warning("Resy automation is paused; no pending Resy jobs loaded.")
+            return 0
+
         reservations = self.db.get_pending_reservations()
         count = 0
 
@@ -273,14 +289,14 @@ class SchedulerDaemon:
 
         now = datetime.now()
         today = now.date()
-        credentials = self._get_credentials()
+        credentials = self._get_credentials() if RESY_AUTOMATION_ENABLED else None
 
         # A single Resy client is reused for every Resy monitor in this tick.
         # OpenTable uses its own provider transport only for OpenTable rows.
         with ExitStack() as stack:
             resy_client = (
                 stack.enter_context(ResyClient(credentials))
-                if credentials
+                if RESY_AUTOMATION_ENABLED and credentials
                 else None
             )
 
@@ -313,6 +329,13 @@ class SchedulerDaemon:
                     if provider == "opentable":
                         self._check_opentable_monitor(monitor, restaurant)
                     elif provider == "resy":
+                        if not RESY_AUTOMATION_ENABLED:
+                            self._cache_monitor_availability(
+                                monitor,
+                                [],
+                                error="Resy automation paused for account protection.",
+                            )
+                            continue
                         if not resy_client:
                             self._cache_monitor_availability(
                                 monitor, [], error="Resy account is not connected."
@@ -745,6 +768,12 @@ class SchedulerDaemon:
                         "provider": "opentable",
                     }
             return {"status": "watching", "provider": "opentable"}
+
+        if not RESY_AUTOMATION_ENABLED:
+            return {
+                "status": "error",
+                "message": "Resy automation is paused for account protection.",
+            }
 
         credentials = self._get_credentials()
         if not credentials:
