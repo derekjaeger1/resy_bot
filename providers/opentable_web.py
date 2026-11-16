@@ -54,18 +54,42 @@ class OpenTableWebClient:
 
     @staticmethod
     def reservation_url(
-        rid: int | str,
+        restaurant_ref: int | str,
         *,
         date_time: str,
         party_size: int,
     ) -> str:
-        """Build OpenTable's normal consumer reservation hand-off URL."""
+        """Build a normal OpenTable consumer URL from either RID or /r/ profile."""
+        ref = str(restaurant_ref or "").strip()
+
+        # Current consumer search commonly exposes canonical /r/<slug> links
+        # rather than a numeric RID. The browser fallback can use that profile
+        # URL directly; no private endpoint is required.
+        if ref.startswith("http://") or ref.startswith("https://"):
+            base = ref
+        elif ref.startswith("/r/"):
+            base = f"{OpenTableWebClient.base_url}{ref}"
+        elif ref.startswith("r/"):
+            base = f"{OpenTableWebClient.base_url}/{ref}"
+        elif ref and not ref.isdigit():
+            base = f"{OpenTableWebClient.base_url}/r/{ref.lstrip('/')}"
+        else:
+            params = {
+                "rid": ref,
+                "datetime": date_time,
+                "covers": str(party_size),
+            }
+            return (
+                f"{OpenTableWebClient.base_url}/restref/client/?"
+                f"{urlencode(params)}"
+            )
+
+        separator = "&" if "?" in base else "?"
         params = {
-            "rid": str(rid),
-            "datetime": date_time,
+            "dateTime": date_time,
             "covers": str(party_size),
         }
-        return f"{OpenTableWebClient.base_url}/restref/client/?{urlencode(params)}"
+        return f"{base}{separator}{urlencode(params)}"
 
     @staticmethod
     def _parse_time_label(label: str, day: str) -> Optional[datetime]:
@@ -123,6 +147,8 @@ class OpenTableWebClient:
             "dateTime": f"{today}T19:00:00",
             "latitude": str(latitude),
             "longitude": str(longitude),
+            "metroId": "8",
+            "sortBy": "web_conversion",
         }
         url = f"{self.base_url}/s?{urlencode(params)}"
 
@@ -185,31 +211,75 @@ class OpenTableWebClient:
                     if len(results) >= limit:
                         break
 
-                # Fallback: reservation links often carry rid in the query string.
+                # Current OpenTable consumer search commonly links restaurants as
+                # /r/<slug>. Older/alternate flows may still expose ?rid=.
                 if len(results) < limit:
                     anchors = page.locator("a[href]")
-                    for idx in range(min(anchors.count(), 250)):
+                    for idx in range(min(anchors.count(), 350)):
                         a = anchors.nth(idx)
-                        href = a.get_attribute("href") or ""
-                        match = re.search(r"[?&]rid=(\d+)", href)
-                        if not match:
+                        href = (a.get_attribute("href") or "").strip()
+                        rid_match = re.search(r"[?&]rid=(\d+)", href)
+                        profile_match = re.search(r"(/r/[^?#]+)", href)
+
+                        if rid_match:
+                            restaurant_ref = rid_match.group(1)
+                        elif profile_match:
+                            restaurant_ref = profile_match.group(1)
+                        else:
                             continue
-                        rid = match.group(1)
-                        if rid in seen:
+
+                        if restaurant_ref in seen:
                             continue
+
+                        text = ""
                         try:
                             text = " ".join((a.inner_text(timeout=250) or "").split())
                         except Exception:
-                            text = ""
-                        if not text or q.lower() not in text.lower():
+                            pass
+
+                        # Restaurant-name anchors can be nested around images;
+                        # inspect the nearest result container for the heading/text.
+                        container_text = ""
+                        container_name = ""
+                        try:
+                            container = a.locator(
+                                "xpath=ancestor::*[self::article or self::li or @data-testid][1]"
+                            )
+                            if container.count():
+                                container_text = " ".join(
+                                    (container.inner_text(timeout=350) or "").split()
+                                )
+                                heading = container.locator(
+                                    "h1,h2,h3,[role='heading']"
+                                ).first
+                                if heading.count():
+                                    container_name = " ".join(
+                                        (heading.inner_text(timeout=250) or "").split()
+                                    )
+                        except Exception:
+                            pass
+
+                        haystack = f"{text} {container_name} {container_text}".lower()
+                        if q.lower() not in haystack:
                             continue
-                        seen.add(rid)
+
+                        name = (container_name or text).strip()
+                        if not name and profile_match:
+                            slug = profile_match.group(1).split("/r/", 1)[1]
+                            name = slug.replace("-", " ").title()
+                        if not name:
+                            continue
+
+                        seen.add(restaurant_ref)
                         results.append({
-                            "id": rid,
-                            "name": text[:160],
+                            "id": restaurant_ref,
+                            "name": name[:160],
                             "neighborhood": "",
                             "cuisine": "",
-                            "url_slug": href,
+                            "url_slug": (
+                                href if href.startswith("http")
+                                else f"{self.base_url}{href}"
+                            ),
                             "provider": self.provider,
                         })
                         if len(results) >= limit:
