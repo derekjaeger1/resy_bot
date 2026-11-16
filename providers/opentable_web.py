@@ -12,6 +12,7 @@ run without Playwright until this transport is explicitly enabled.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,6 +21,8 @@ from typing import Any, Optional
 from urllib.parse import quote_plus, urlencode
 
 from .models import BookingResult, ProviderAvailability, ProviderSlot
+
+logger = logging.getLogger(__name__)
 
 
 class OpenTableWebError(RuntimeError):
@@ -288,6 +291,12 @@ class OpenTableWebClient:
                 context.close()
                 browser.close()
 
+        logger.info(
+            "OpenTable search q=%r returned %d visible matches: %s",
+            q,
+            len(results),
+            [item.get("id") for item in results[:5]],
+        )
         return results
 
     @staticmethod
