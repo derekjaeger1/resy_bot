@@ -95,6 +95,44 @@ class OpenTableWebClient:
         return f"{base}{separator}{urlencode(params)}"
 
     @staticmethod
+    def _profile_slug_candidates(query: str) -> list[str]:
+        """Best-effort canonical OpenTable /r/ slug candidates for NYC."""
+        raw = (query or "").strip().lower()
+        raw = raw.replace("’", "'")
+        # OpenTable slugs generally drop apostrophes rather than replacing them.
+        no_apostrophe = raw.replace("'", "")
+        tokens = re.findall(r"[a-z0-9]+", raw)
+        candidates = []
+
+        def add(base: str):
+            base = re.sub(r"[^a-z0-9-]+", "-", base).strip("-")
+            if not base:
+                return
+            for slug in (f"{base}-new-york", base):
+                if slug not in candidates:
+                    candidates.append(slug)
+
+        add(re.sub(r"\s+", "-", no_apostrophe))
+
+        # If the user typed "d or" rather than "d'or", OpenTable commonly
+        # canonicalizes that as "dor".
+        merged = []
+        i = 0
+        while i < len(tokens):
+            if (
+                i + 1 < len(tokens)
+                and len(tokens[i]) == 1
+                and tokens[i] in {"d", "l"}
+            ):
+                merged.append(tokens[i] + tokens[i + 1])
+                i += 2
+            else:
+                merged.append(tokens[i])
+                i += 1
+        add("-".join(merged))
+        return candidates[:4]
+
+    @staticmethod
     def _parse_time_label(label: str, day: str) -> Optional[datetime]:
         raw = " ".join((label or "").split()).upper()
         match = re.search(r"\b(\d{1,2}):(\d{2})\s*(AM|PM)\b", raw)
@@ -287,6 +325,52 @@ class OpenTableWebClient:
                         })
                         if len(results) >= limit:
                             break
+                # Last-resort normal-web fallback: probe likely canonical /r/ URLs.
+                # This avoids depending on OpenTable's search result DOM for exact
+                # restaurant-name searches while still using only visible public pages.
+                if not results:
+                    normalized_q = re.sub(r"[^a-z0-9]+", "", q.lower())
+                    for slug in self._profile_slug_candidates(q):
+                        profile_url = f"{self.base_url}/r/{slug}"
+                        try:
+                            page.goto(profile_url, wait_until="domcontentloaded")
+                            page.wait_for_timeout(700)
+                            if self._challenge_present(page):
+                                break
+
+                            heading = ""
+                            try:
+                                h = page.locator("h1").first
+                                if h.count():
+                                    heading = " ".join(
+                                        (h.inner_text(timeout=350) or "").split()
+                                    )
+                            except Exception:
+                                pass
+
+                            normalized_heading = re.sub(
+                                r"[^a-z0-9]+", "", heading.lower()
+                            )
+                            if (
+                                heading
+                                and normalized_q
+                                and (
+                                    normalized_q == normalized_heading
+                                    or normalized_q in normalized_heading
+                                    or normalized_heading in normalized_q
+                                )
+                            ):
+                                results.append({
+                                    "id": f"/r/{slug}",
+                                    "name": heading[:160],
+                                    "neighborhood": "",
+                                    "cuisine": "",
+                                    "url_slug": page.url,
+                                    "provider": self.provider,
+                                })
+                                break
+                        except Exception:
+                            continue
             finally:
                 context.close()
                 browser.close()
