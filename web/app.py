@@ -29,6 +29,7 @@ from config import (
     OPENTABLE_WEB_ENABLED,
     OPENTABLE_WEB_HEADLESS,
     OPENTABLE_WEB_PROFILE_DIR,
+    RESY_AUTOMATION_ENABLED,
 )
 from resy.client import AuthenticationError, ResyClient, login as resy_login, search_venues
 from providers.opentable_web import (
@@ -184,9 +185,17 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        # Refresh restaurant-specific release intelligence from our verified
-        # registry / public Resy listing parser. Never invent a release time.
+        # Fail closed after a Resy account-security warning: no automated
+        # Resy search, polling, booking, account sync, or rule refreshes.
+        if not RESY_AUTOMATION_ENABLED and db.get_credentials():
+            db.delete_credentials()
+            daemon.refresh_credentials()
+
+        # Refresh restaurant-specific release intelligence only when the
+        # Resy integration is explicitly enabled.
         for restaurant in db.get_restaurants():
+            if not RESY_AUTOMATION_ENABLED:
+                break
             if (getattr(restaurant, "provider", None) or "resy").lower() != "resy":
                 continue
             rule = resolve_release_rule(restaurant.name, getattr(restaurant, "url_slug", None))
@@ -351,7 +360,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
         live_reservations = []
         live_resy_ok = False
         creds = db.get_credentials()
-        if creds:
+        if RESY_AUTOMATION_ENABLED and creds:
             try:
                 with ResyClient(ResyCredentials(
                     api_key=creds.api_key,
@@ -511,7 +520,10 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 pref_map=pref_map,
                 has_credentials=bool(creds),
                 has_diner_profile=bool(db.get_diner_profile()),
-                has_booking_profile=bool(creds or db.get_diner_profile()),
+                has_booking_profile=bool(
+                    (RESY_AUTOMATION_ENABLED and creds) or db.get_diner_profile()
+                ),
+                resy_automation_enabled=RESY_AUTOMATION_ENABLED,
                 credential_email=creds.email if creds else None,
                 has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
                 now=now_local_naive(),
@@ -539,6 +551,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 today=now_local_naive().date().isoformat(),
                 has_credentials=bool(db.get_credentials()),
                 has_diner_profile=bool(db.get_diner_profile()),
+                resy_automation_enabled=RESY_AUTOMATION_ENABLED,
                 can_create_watch=bool(
                     db.get_credentials() or db.get_diner_profile()
                 ),
@@ -552,6 +565,8 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             return []
 
         async def _resy_results():
+            if not RESY_AUTOMATION_ENABLED:
+                return []
             try:
                 return await asyncio.to_thread(search_venues, q)
             except Exception:
@@ -678,6 +693,14 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
         if provider not in {"resy", "opentable"}:
             raise HTTPException(400, "Unsupported reservation provider")
+        if provider == "resy" and not RESY_AUTOMATION_ENABLED:
+            return _redirect(
+                "/new",
+                error=(
+                    "Resy automation is paused for account protection. "
+                    "Use Resy manually for now."
+                ),
+            )
         if not provider_venue_id:
             raise HTTPException(400, "Restaurant ID is missing")
         if provider == "resy" and not db.get_credentials():
@@ -913,6 +936,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @app.post("/resy-reservations/{reservation_id}/cancel")
     async def cancel_live_resy_reservation(reservation_id: str):
+        if not RESY_AUTOMATION_ENABLED:
+            return _redirect(
+                "/",
+                error="Resy automation is paused. Cancel this reservation directly in Resy.",
+            )
         stored = db.get_credentials()
         if not stored:
             return _redirect("/", error="Reconnect your Resy account before cancelling.")
@@ -986,6 +1014,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @app.post("/bookings/{history_id}/cancel")
     async def cancel_booked_reservation(history_id: int):
+        if not RESY_AUTOMATION_ENABLED:
+            return _redirect(
+                "/",
+                error="Resy automation is paused. Manage this reservation directly in Resy.",
+            )
         history = db.get_history_by_id(history_id)
         if not history or not history.success or not history.resy_token:
             return _redirect("/", error="That booking could not be found.")
@@ -1092,6 +1125,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
                 "settings",
                 credentials=creds,
                 diner_profile=profile,
+                resy_automation_enabled=RESY_AUTOMATION_ENABLED,
                 restaurants=restaurants,
                 data_dir=str(DATA_DIR),
                 has_volume=bool(os.getenv("RAILWAY_VOLUME_MOUNT_PATH")),
@@ -1127,6 +1161,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @app.post("/settings/resy-login")
     async def settings_resy_login(email: str = Form(...), password: str = Form(...)):
+        if not RESY_AUTOMATION_ENABLED:
+            return _redirect(
+                "/settings",
+                error="Resy automation is paused for account protection.",
+            )
         try:
             creds = resy_login(email.strip(), password)
             db.save_credentials(
@@ -1145,6 +1184,11 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
 
     @app.post("/settings/resy-test")
     async def settings_resy_test():
+        if not RESY_AUTOMATION_ENABLED:
+            return _redirect(
+                "/settings",
+                error="Resy automation is paused for account protection.",
+            )
         stored = db.get_credentials()
         if not stored:
             return _redirect("/settings", error="No Resy account connected.")
@@ -1186,7 +1230,7 @@ def create_app(db: Database | None = None, daemon: SchedulerDaemon | None = None
             if res.restaurant_id == restaurant_id:
                 new_fire = db.calculate_snipe_time(updated_restaurant, res.target_date)
                 updated = db.update_reservation(res.id, snipe_at=new_fire)
-                if updated and new_fire > now_local_naive():
+                if RESY_AUTOMATION_ENABLED and updated and new_fire > now_local_naive():
                     daemon.schedule_job(updated)
         return _redirect("/settings", message=f"Updated release rule for {restaurant.name}.")
 
